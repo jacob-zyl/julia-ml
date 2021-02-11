@@ -28,7 +28,7 @@ function build_model()
 end
 
 function get_domain()
-    rand(DIM, BATCH_SIZE)
+    rand(Float32, DIM, BATCH_SIZE)
     #zip(domain[1, :], domain[2, :]) |> collect |> scatter
 end
 
