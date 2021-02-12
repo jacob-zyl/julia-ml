@@ -16,6 +16,8 @@ theme(:vibrant)
 #     )
 # end
 
+const DIM = 2
+const BATCH_SIZE = 100
 function D(f)
     return (x, θ) -> Zygote.pullback(y -> f(y, θ), x)[2](ones(1, size(x, 2)))[1]
 end
@@ -23,10 +25,6 @@ swift_sink(x) = x + log1p(1f5 * x) * 1f-3 # This is magic (number)
 bv(i, n) = [j == i for j = 1:n]
 split(phi, n) = [(x, t) -> bv(i, n)' * phi(x, t) for i = 1:n]
 split(phi) = split(phi, DIM)
-
-
-const DIM = 2
-const BATCH_SIZE = 100
 
 function build_model()
     model1 = Chain(Dense(DIM, 20, tanh), Dense(20, 1))
