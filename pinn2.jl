@@ -71,9 +71,6 @@ loss_harder(x) = begin
 end
 
 
-# opt_f = OptimizationFunction(loss_hard, GalacticOptim.AutoZygote())
-# prob = OptimizationProblem(opt_f, θ)
-# sol = solve(prob, Optim.BFGS())
 data = Flux.Data.DataLoader((x̂,), batchsize = 10, shuffle=true)
 Flux.Optimise.@epochs 1000 Flux.Optimise.train!(
     loss_original,

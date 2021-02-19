@@ -1,0 +1,36 @@
+* Julia Machine Learning Trials
+
+** Only for saving, not a true repository
+
+
+** Notes
+
+Something to compare:
+
+1. Define equation differentials with ~ForwardDiff.gradient~, ~Zygote.pushforward~
+   and ~Zygote.pullback~.
+2. Apply or not ~swift-sink~ function to reduce and loss respectively.
+
+** Breakthroughs
+
+|-----------+---------------------------------------|
+| pinn.jl   | ~ForwardDiff.gradient()~ works          |
+| pinn2.jl  | ~Zygote.pushforward()~  works           |
+| pinn3.jl  | ~Optim~ with FD works                   |
+| pinn4.jl  | ~ForwardDiff.gradient()~ enhanced       |
+| pinn5.jl  | ~Zygote.pullback()~ enhanced            |
+| pinn6.jl  | ~Flux.Optimise~ with mini-batch         |
+| pinn7.jl  | ~pullback~ analysis                     |
+| pinn8.jl  | 2D problem with ~pullback~ and ~Optim~ FD |
+| pinn9.jl  | 2D problem with multi-nets            |
+| pinn10.jl | ~pushforward~ and ~Optim~ FD              |
+| pinn11.jl | ~Optim~ FD and constrains               |
+| pinn12.jl | PERFECT                               |
+|-----------+---------------------------------------|
+
+** Struggles
+
+~GalacticOptim~ now works only on FD instead of RD like ~AutoZygote()~,
+~AutoTracker()~ or ~AutoReverseDiff()~. If ~ForwardDiff~ is used, ~Zygote~ would
+complain that mutating array is not supported; if ~pullback~ is used, ~Zygote~ would
+complain that there is a mysterious broadcast error.

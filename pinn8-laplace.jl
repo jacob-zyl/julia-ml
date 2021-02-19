@@ -18,7 +18,7 @@ function D(f)
 end
 
 const DIM = 2
-const BATCH_SIZE = 25
+const BATCH_SIZE = 16
 
 function build_model()
     model = Chain(Dense(DIM, 10, tanh), Dense(10, 1))
@@ -78,7 +78,7 @@ end
 function train()
     _, ϕ, θ, re = build_model()
 
-    opt_f = OptimizationFunction(get_loss(ϕ), GalacticOptim.AutoForwardDiff())
+    opt_f = OptimizationFunction(get_loss(ϕ), GalacticOptim.AutoZygote())
     prob = OptimizationProblem(opt_f, θ)
     sol = solve(prob, Optim.BFGS())
 
@@ -95,5 +95,5 @@ function train()
     (ϕ, sol, p)
 end
 
-@fastmath @inbounds f, s, p = train()
+f, s, p = train()
 print(s)
