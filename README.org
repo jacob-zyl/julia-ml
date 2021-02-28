@@ -26,9 +26,10 @@ Something to compare:
 | pinn10.jl | ~pushforward~ and ~Optim~ FD              |
 | pinn11.jl | ~Optim~ FD and constrains               |
 | pinn12.jl | PERFECT                               |
+| pinn13.jl | Neumann boundary condition tested     |
 |-----------+---------------------------------------|
 
-** Struggles
+** DONE Struggles
 
 ~GalacticOptim~ now works only on FD instead of RD like ~AutoZygote()~,
 ~AutoTracker()~ or ~AutoReverseDiff()~. If ~ForwardDiff~ is used, ~Zygote~ would

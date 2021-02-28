@@ -24,7 +24,7 @@ const PJ12 = diagm(P2, P_SIZE, P1 => ones(Float32, P2))
 const PJ21 = diagm(P3, P_SIZE, P1 + P2 => ones(Float32, P3))
 const PJ22 = diagm(P4, P_SIZE, P1 + P2 + P3 => ones(Float32, P4))
 
-D(f) = (x, θ) -> pullback(y -> f(y, θ), x)[2](ones(Float32, 1, size(x, 2)))[1]
+D(ϕ) = (f, x) -> pullback(ξ -> ϕ(f, ξ), x)[2](ones(Float32, 1, size(x, 2)))[1]
 swift_sink(x) = x + log1p(1f5 * x) * 1f-3 # This is magic (number)
 bv(i, n) = [j == i for j = 1:n]
 split(phi, n) = [(x, t) -> bv(i, n)' * phi(x, t) for i = 1:n]
@@ -32,7 +32,7 @@ split(phi) = split(phi, DIM)
 
 function build_my_model()
     _, θ1, θ2, θ3 = build_model_fast()
-    ϕ(x, θ) = begin
+    ϕ(θ, x) = begin
         W1 = PJ11 * θ |> x -> reshape(x, HIDDEN, DIM)
         b1 = PJ12 * θ |> x -> reshape(x, HIDDEN, 1)
         W2 = PJ21 * θ |> x -> reshape(x, 1, HIDDEN)
@@ -64,7 +64,7 @@ end
 """
 f is f(x, θ)
 """
-function get_loss(f)
+function get_loss(ϕ)
 
     bsize = BATCH_SIZE |> sqrt |> ceil |> Int # boundary data batch size
     points = range(0.0f0, 1.0f0, length = bsize)'
@@ -78,35 +78,33 @@ function get_loss(f)
     f_4 = @. sin(pi * points)
     pde_domain = get_domain()
 
-    fx, fy = split(D(f))
+    ∂x, ∂y = split(D(ϕ))
     # fx = Dx(f)
     # fy = Dy(f)
     # gx = Dx(g)
     # hy = Dy(h)
 
     loss(θ, p) = begin
-        θ1 = θ * [1.0f0; 0.0f0; 0.0f0]
-        θ2 = θ * [0.0f0; 1.0f0; 0.0f0]
-        θ3 = θ * [0.0f0; 0.0f0; 1.0f0]
-        eq_res_1 = fx(pde_domain, θ2) + fy(pde_domain, θ3)
-        eq_res_2 = fx(pde_domain, θ1) - f(pde_domain, θ2)
-        eq_res_3 = fy(pde_domain, θ1) - f(pde_domain, θ3)
-        eq_residual_1 = mean(swift_sink ∘ abs2, eq_res_1)
-        eq_residual_2 = mean(swift_sink ∘ abs2, eq_res_2)
-        eq_residual_3 = mean(swift_sink ∘ abs2, eq_res_3)
-        bd_residual_1 = mean(swift_sink ∘ abs2, f(bd_1, θ1) - f_1)
-        bd_residual_2 = mean(swift_sink ∘ abs2, f(bd_2, θ1) - f_2)
-        bd_residual_3 = mean(swift_sink ∘ abs2, f(bd_3, θ1) - f_3)
-        bd_residual_4 = mean(swift_sink ∘ abs2, f(bd_4, θ1) - f_4)
+        f = θ * [1.0f0; 0.0f0; 0.0f0]
+        g = θ * [0.0f0; 1.0f0; 0.0f0]
+        h = θ * [0.0f0; 0.0f0; 1.0f0]
+
+        eq_res_1 = ∂x(g, pde_domain) + ∂y(h, pde_domain)
+        eq_res_2 = ∂x(f, pde_domain) - ϕ(g, pde_domain)
+        eq_res_3 = ∂y(f, pde_domain) - ϕ(h, pde_domain)
+        bd_res_1 = ϕ(f, bd_1) - f_1
+        bd_res_2 = ϕ(f, bd_2) - f_2
+        bd_res_3 = ϕ(f, bd_3) - f_3
+        bd_res_4 = ϕ(f, bd_4) - f_4
+
         +(
-            bd_residual_1,
-            bd_residual_2,
-            bd_residual_3,
-            bd_residual_4,
-            eq_residual_1,
-            eq_residual_2,
-            eq_residual_3,
-        )
+            mean(swift_sink ∘ abs2, eq_res_1),
+            mean(swift_sink ∘ abs2, eq_res_2),
+            mean(swift_sink ∘ abs2, eq_res_3),
+            mean(swift_sink ∘ abs2, bd_res_1),
+            mean(swift_sink ∘ abs2, bd_res_2),
+            mean(swift_sink ∘ abs2, bd_res_3),
+            mean(swift_sink ∘ abs2, bd_res_4))
     end
     loss_hard(θ, p) = begin
         r = loss(θ, p)
@@ -115,22 +113,22 @@ function get_loss(f)
 end
 
 function train()
-    f, θ1, θ2, θ3 = build_my_model()
+    ϕ, f, g, h = build_my_model()
 
     opt_f = OptimizationFunction(
-        get_loss(f),
+        get_loss(ϕ),
         GalacticOptim.AutoZygote()
     )
-    prob = OptimizationProblem(opt_f, [θ1 θ2 θ3])
+    prob = OptimizationProblem(opt_f, [f g h])
     sol = solve(prob, Optim.BFGS())
-    (f, sol)
+    (ϕ, sol)
 end
 
-function show_results(f, sol)
+function show_results(ϕ, sol)
     x_test = range(0, 1, length=200)
     y_test = range(0, 1, length=200)
-    func(x) = f(reshape(x, 2, 1), sol.minimizer[:, 1])[1]
-    #graph_f = (x::AbstractFloat, y::AbstractFloat) -> f([x y]', sol.minimizer)[1]
+    func(x) = ϕ(sol.minimizer[:, 1], reshape(x, 2, 1))[1]
+    #graph_f = (x::AbstractFloat, y::AbstractFloat) -> ϕ([x y]', sol.minimizer)[1]
     ## The array implementation is as follows, but I choose the functional way.
     graph_f = vcat.(x_test', y_test) .|> func
     p = heatmap(x_test, y_test, graph_f, aspect_ratio=:equal)
