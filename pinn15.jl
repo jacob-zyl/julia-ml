@@ -26,9 +26,9 @@ const PJ22 = diagm(P4, P_SIZE, P1 + P2 + P3 => ones(Float32, P4))
 ### END
 
 function show_results(ϕ, sol)
-    x_test = range(0, 1, length=200)
-    y_test = range(0, 1, length=200)
-    func(x) = ϕ(sol.minimizer[:, 1], reshape(x, 2, 1))[1]
+    x_test = range(0f0, 1f0, length=200)
+    y_test = range(0f0, 1f0, length=200)
+    func(x) = ϕ(sol.minimizer[:, 1], reshape(x, 2, 1) |> collect)[1]
     graph_f = vcat.(x_test', y_test) .|> func
     p = heatmap(x_test, y_test, graph_f, aspect_ratio=:equal)
     exact(ξ) = begin
@@ -36,7 +36,7 @@ function show_results(ϕ, sol)
         sin(pi * x) * sinh(pi * y) / sinh(pi)
     end
     f_error(x, p) = func(x) - exact(x) |> abs2
-    qprob = QuadratureProblem(f_error, zeros(2), ones(2))
+    qprob = QuadratureProblem(f_error, zeros(Float32, 2), ones(Float32, 2))
     solution = solve(qprob, HCubatureJL(), reltol = 1e-3, abstol = 1e-3)
     contour!(p, x_test, y_test, graph_f,
              line=(:black),
@@ -90,9 +90,12 @@ D(ϕ) = (f::Array{Float32, 1}, x::Array{Float32, 2}) -> pullback(ξ -> ϕ(f, ξ)
 #Dy(ϕ) = (f::Array{Float32, 1}, x::Array{Float32, 2}) -> [0.0f0 1.0f0] * pullback(ξ -> ϕ(f, ξ), x)[2](ones(Float32, 1, size(x, 2)))[1]
 
 cliff(x; a=1.0f-3, b=1.0f5) = x + log1p(b * x) * a # This is magic (number)
-split(phi::T) where{T} = (
+split(phi::Function) = (
     (f::Array{Float32, 1}, x::Array{Float32, 2}) -> [1.0f0 0.0f0] * phi(f, x)::Array{Float32, 2},
     (f::Array{Float32, 1}, x::Array{Float32, 2}) -> [0.0f0 1.0f0] * phi(f, x)::Array{Float32, 2})
+split(a::Array{Float32, 2}) = (
+    [1.0f0 0.0f0] * a,
+    [0.0f0 1.0f0] * a)
 function get_loss(ϕ::H) where{H}
 
     ∂x, ∂y = split(D(ϕ))
@@ -137,10 +140,65 @@ function get_loss(ϕ::H) where{H}
     #     cliff(r)
     # end
 end
+function get_loss2(ϕ::H) where{H}
+
+    #∂x, ∂y = split(D(ϕ))
+    #∂x = Dx(ϕ)
+    #∂y = Dy(ϕ)
+
+    points = range(0.0f0, 1.0f0, length = BDSIZE)'
+    bd_1 = [zeros(Float32, 1, BDSIZE); points]
+    bd_2 = [ones(Float32, 1, BDSIZE); points]
+    bd_3 = [points; zeros(Float32, 1, BDSIZE)]
+    bd_4 = [points; ones(Float32, 1, BDSIZE)]
+    f_1 = zeros(Float32, 1, BDSIZE)
+    f_2 = zeros(Float32, 1, BDSIZE)
+    f_3 = zeros(Float32, 1, BDSIZE)
+    f_4 = @. sin(pi * points) * pi / tanh(pi)
+
+    loss(θ::Array{Float32, 2}, pde_domain::Array{Float32, 2}) = begin
+        f = θ * [1.0f0; 0.0f0; 0.0f0]
+        g = θ * [0.0f0; 1.0f0; 0.0f0]
+        h = θ * [0.0f0; 0.0f0; 1.0f0]
+        reduce_func = cliff ∘ abs2
+
+        Df = pullback(ξ -> ϕ(f, ξ), pde_domain)[2](ones(Float32, 1, size(pde_domain, 2)))[1]
+        Dg = pullback(ξ -> ϕ(g, ξ), pde_domain)[2](ones(Float32, 1, size(pde_domain, 2)))[1]
+        Dh = pullback(ξ -> ϕ(h, ξ), pde_domain)[2](ones(Float32, 1, size(pde_domain, 2)))[1]
+
+        Dxf, Dyf = split(Df)
+        Dxg, _ = split(Dg)
+        _, Dyh = split(Dh)
+
+        Df2 = pullback(ξ -> ϕ(f, ξ), bd_4)[2](ones(Float32, 1, size(bd_4, 2)))[1]
+        _, Dyf2 = split(Df2)
+
+        eq_res_1 = Dxg + Dyh
+        eq_res_2 = Dxf - ϕ(g, pde_domain)
+        eq_res_3 = Dyf - ϕ(h, pde_domain)
+        bd_res_1 = ϕ(f, bd_1) - f_1
+        bd_res_2 = ϕ(f, bd_2) - f_2
+        bd_res_3 = ϕ(f, bd_3) - f_3
+        bd_res_4 = Dyf2 - f_4
+
+        +(
+            mean(reduce_func, eq_res_1),
+            mean(reduce_func, eq_res_2),
+            mean(reduce_func, eq_res_3),
+            mean(reduce_func, bd_res_1),
+            mean(reduce_func, bd_res_2),
+            mean(reduce_func, bd_res_3),
+            mean(reduce_func, bd_res_4))
+    end
+    # loss_hard(θ, p) = begin
+    #     r = loss(θ, p)
+    #     cliff(r)
+    # end
+end
 
 function train(ϕ, Θ::Array; optimizer=BFGS(), maxiters=1000)
     pde_domain = get_domain()
-    opt_f = OptimizationFunction(get_loss(ϕ), GalacticOptim.AutoZygote())
+    opt_f = OptimizationFunction(get_loss2(ϕ), GalacticOptim.AutoZygote())
     prob = OptimizationProblem(opt_f, Θ, pde_domain)
     sol = solve(prob, optimizer; maxiters=maxiters)
     (ϕ, sol)
@@ -159,11 +217,11 @@ function train(; kwargs...)
     train(ϕ, [f g h]; kwargs...)
 end
 
-## Profiling
-using Profile
-f, s = train()
+# ## Profiling
+# using Profile
+# f, s = train()
 
-Profile.clear()
-@profile train()
-Juno.profiler(; C=true)
-@profiler train() combine=true
+# Profile.clear()
+# @profile train()
+# Juno.profiler(; C=true)
+# @profiler train() combine=true
