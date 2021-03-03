@@ -1,6 +1,6 @@
 using LinearAlgebra, Statistics, StaticArrays
 using Flux, DiffEqFlux
-using GalacticOptim, Optim, Quadrature
+using GalacticOptim, Optim
 using Plots
 plotlyjs()
 theme(:vibrant)

@@ -1,5 +1,9 @@
 module Utils
+
 using Printf
+using Plots
+using Quadrature
+
 export show_results, get_domain, D, getxy, cliff
 
 function show_results(ϕ, sol)
