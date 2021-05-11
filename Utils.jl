@@ -3,8 +3,9 @@ module Utils
 using Printf
 using Plots
 using Quadrature
+using Zygote
 
-export show_results, get_domain, D, getxy, cliff
+export show_results, get_domain, D, getxy, cliff, D2, show_results_dc
 
 function show_results(ϕ, sol)
     x_test = range(0f0, 1f0, length=200)
@@ -31,6 +32,16 @@ function show_results(ϕ, sol)
     (sqrt(solution.u[1]), p)
 end
 
+function show_results_dc(ϕ, sol)
+    x_test = range(0f0, 1f0, length=200)
+    y_test = range(0f0, 1f0, length=200)
+    func(x) = ϕ(sol.minimizer[:, 1], reshape(x, 2, 1) |> collect)[1]
+    graph_f = vcat.(x_test', y_test) .|> func
+    p = heatmap(x_test, y_test, graph_f, aspect_ratio=:equal)
+    p
+end
+
+
 function get_domain(dim, size; show=false)
     domain = rand(Float32, dim, size)
     if show
@@ -47,6 +58,7 @@ end
 
 using Zygote
 D(phi, f, x) = pullback(ξ -> phi(f, ξ), x)[2](ones(Float32, 1, size(x, 2)))[1]
+D2(phi, f, x) = Zygote.gradient(y -> sum(phi(f, y)), x)[1]
 
 cliff(x; a=1.0f-3, b=1.0f5) = x + log1p(b * x) * a # This is magic (number)
 

@@ -2,7 +2,7 @@ using LinearAlgebra, Statistics, StaticArrays
 using Flux, DiffEqFlux
 using GalacticOptim, Optim
 using Plots
-plotlyjs()
+plotly()
 theme(:vibrant)
 
 push!(LOAD_PATH, pwd())
@@ -14,7 +14,7 @@ function build_model_fast()
     θ1 = initial_params(network)
     θ2 = initial_params(network)
     θ3 = initial_params(network)
-    (ϕ1, θ1, θ2, θ3)
+    (network, θ1, θ2, θ3)
 end
 
 function build_my_model()
@@ -89,7 +89,7 @@ function train(ϕ, sol::Optim.MultivariateOptimizationResults; kwargs...)
     train(ϕ, sol.minimizer; kwargs...)
 end
 
-function train(ϕ, sol::GalacticOptim.OptimizationSolution; kwargs...)
+function train(ϕ, sol::SciMLBase.OptimizationSolution; kwargs...)
     train(ϕ, sol.minimizer; kwargs...)
 end
 

@@ -1,4 +1,4 @@
-module Constants
+module ConstantsDrivenCavity
 using LinearAlgebra
 
 export DIM, DIM_OUT, HIDDEN, BATCH_SIZE
