@@ -5,9 +5,10 @@ using Plots
 using Quadrature
 using Zygote
 
-export show_results, get_domain, D, getxy, cliff, D2, show_results_dc
+export get_domain, D, getxy, cliff, D2
+export show_results, show_results_dc, show_results_ode
 
-function show_results(ϕ, sol)
+function show_results_laplace(ϕ, sol)
     x_test = range(0f0, 1f0, length=200)
     y_test = range(0f0, 1f0, length=200)
     func(x) = ϕ(sol.minimizer[:, 1], reshape(x, 2, 1) |> collect)[1]
@@ -41,6 +42,18 @@ function show_results_dc(ϕ, sol)
     p
 end
 
+function show_results_ode(ϕ, sol)
+    f_exact(x) = exp(x)
+    x_test = reshape(range(0f0, 1f0, length=200), 1, :)
+    p = plot(x_test', ϕ(sol.minimizer, x_test)',
+             label=" Simulation Result")
+    plot!(p, x_test', f_exact.(x_test'),
+          linestyle=:dot,
+          label=" Analytical Solution")
+    q = plot(x_test', f_exact.(x_test') - ϕ(sol.minimizer, x_test)',
+             label=" Pointwise Error")
+    plot(p, q)
+end
 
 function get_domain(dim, size; show=false)
     domain = rand(Float32, dim, size)

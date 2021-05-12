@@ -6,8 +6,17 @@ push!(LOAD_PATH, pwd())
 using Utils
 using ConstantsODE
 
-pyplot()
+plotly()
 theme(:vibrant)
+
+function acFun(x)
+    if x > -1.0f0 && x < 0.0f0
+        return 1.0f0 + x
+    elseif x > 0.0f0 && x < 1.0f0
+        return 1.0f0 - x
+    else
+        return 0.0f0
+end
 
 function build_model_fast()
     network = FastChain(FastDense(DIM, HIDDEN, tanh), FastDense(HIDDEN, 1))
