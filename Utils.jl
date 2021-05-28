@@ -5,7 +5,7 @@ using Plots
 using Quadrature
 using Zygote
 
-export get_domain, D, getxy, cliff, D2
+export get_domain, D, getxy, cliff, D2, Df, split
 export show_results, show_results_dc, show_results_ode
 
 function show_results_laplace(ϕ, sol)
@@ -72,8 +72,11 @@ end
 using Zygote
 D(phi, f, x) = pullback(ξ -> phi(f, ξ), x)[2](ones(Float32, 1, size(x, 2)))[1]
 D2(phi, f, x) = Zygote.gradient(y -> sum(phi(f, y)), x)[1]
+Df(ϕ) = (f, x) -> pullback(ξ -> ϕ(f, ξ), x)[2](ones(Float32, 1, size(x, 2)))[1]
+bv(i, n) = [j == i for j = 1:n]
+split(phi, n) = [(x, t) -> bv(i, n)' * phi(x, t) for i = 1:n]
+getxy(a::Array{Float32, 2}) = ([1.0f0 0.0f0] * a, [0.0f0 1.0f0] * a)
 
 cliff(x; a=1.0f-3, b=1.0f5) = x + log1p(b * x) * a # This is magic (number)
 
-getxy(a::Array{Float32, 2}) = ([1.0f0 0.0f0] * a, [0.0f0 1.0f0] * a)
 end
