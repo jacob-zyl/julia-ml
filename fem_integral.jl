@@ -18,8 +18,8 @@ const BATCH_SIZE = 200
 const LENGTH = 10
 ### END
 
-function acFun(x::Float32)
-    # ## version 1
+function acFun(x)
+    # ## version 1 (this is not vectorized)
     # if x > -1.0f0 && x <= 0.0f0
     #     return 1.0f0 + x
     # elseif x > 0.0f0 && x < 1.0f0
@@ -28,7 +28,7 @@ function acFun(x::Float32)
     #     return 0.0f0
     # end
 
-    # ## version 2
+    # ## version 2 (this is not vectorized)
     # p = 0.0f0
     # if x > -1.0f0 && x <= 0.0f0
     #     p = 1.0f0 + x
@@ -41,7 +41,7 @@ function acFun(x::Float32)
     min(relu(x+one(x)), relu(one(x)-x))
 
     # ## version 4
-    # max(1.0f0 - abs(x), zero(x))
+    # max(one(x) - abs(x), zero(x))
 
 end
 
@@ -63,15 +63,13 @@ function get_loss(ϕ)
         # reduce_func = cliff ∘ abs2
         reduce_func = abs2
 
-        eq_res = D(ϕ, f, domain) - ϕ(f, domain)
-        bd_res = ϕ(f, zeros(Float32, 1, 1)) .- ones(Float32, 1, 1)
-
-
-        +(
-            mean(reduce_func, eq_res),
-            mean(reduce_func, bd_res))
-        # bd_res = ϕ(f, domain) - exp.(domain)
-        # mean(reduce_func, bd_res)
+        # eq_res = D(ϕ, f, domain) - ϕ(f, domain)
+        # bd_res = ϕ(f, zeros(Float32, 1, 1)) .- ones(Float32, 1, 1)
+        # +(
+        #     mean(reduce_func, eq_res),
+        #     mean(reduce_func, bd_res))
+        res = ϕ(f, domain) - exp.(domain)
+        mean(reduce_func, res)
     end
     # loss_hard(θ, p) = begin
     #     r = loss(θ, p)
