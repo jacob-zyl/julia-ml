@@ -13,21 +13,54 @@ Something to compare:
 
 ** Breakthroughs
 
-|-----------+---------------------------------------|
-| pinn.jl   | ~ForwardDiff.gradient()~ works          |
-| pinn2.jl  | ~Zygote.pushforward()~  works           |
-| pinn3.jl  | ~Optim~ with FD works                   |
-| pinn4.jl  | ~ForwardDiff.gradient()~ enhanced       |
-| pinn5.jl  | ~Zygote.pullback()~ enhanced            |
-| pinn6.jl  | ~Flux.Optimise~ with mini-batch         |
-| pinn7.jl  | ~pullback~ analysis                     |
+|-----------+-------------------------------------------|
+| pinn.jl   | ~ForwardDiff.gradient()~ works            |
+| pinn2.jl  | ~Zygote.pushforward()~  works             |
+| pinn3.jl  | ~Optim~ with FD works                     |
+| pinn4.jl  | ~ForwardDiff.gradient()~ enhanced         |
+| pinn5.jl  | ~Zygote.pullback()~ enhanced              |
+| pinn6.jl  | ~Flux.Optimise~ with mini-batch           |
+| pinn7.jl  | ~pullback~ analysis                       |
 | pinn8.jl  | 2D problem with ~pullback~ and ~Optim~ FD |
-| pinn9.jl  | 2D problem with multi-nets            |
+| pinn9.jl  | 2D problem with multi-nets                |
 | pinn10.jl | ~pushforward~ and ~Optim~ FD              |
-| pinn11.jl | ~Optim~ FD and constrains               |
-| pinn12.jl | PERFECT                               |
-| pinn13.jl | Neumann boundary condition tested     |
-|-----------+---------------------------------------|
+| pinn11.jl | ~Optim~ FD and constrains                 |
+| pinn12.jl | PERFECT                                   |
+| pinn13.jl | Neumann boundary condition tested         |
+|-----------+-------------------------------------------|
+
+** The Hermite FEM
+
+|-----------------+------------------------------|
+| fem_hermite.jl  | linear ODE                   |
+| fem_hermite2.jl | ~struct Element~ defined     |
+| fem_hermite3.jl | put everyting to FEMUtils.jl |
+| fem_hermite4.jl | nonlinear ODE                |
+|-----------------+------------------------------|
+
+** The Spectral Element Method
+
+|---------+-----------------------------------------------------------|
+| sem.jl  | nonlinear ODE, not working, maybe due to wrong derivative |
+| sem2.jl | linear ODE, not working                                   |
+| sem3.jl | C1 constrain by penalty, derivative calculation corrected |
+| sem4.jl | C1 constrain by penalty, nonlinear ODE                    |
+| sem5.jl | C1 constrain implemented                                  |
+| sem6.jl | C2 constrain implemented                                  |
+| sem7.jl | half-mode constrain implemented, not working              |
+|---------+-----------------------------------------------------------|
+
+*** Benchmark test
+
+| \(nu = 0.005\) | Hermite | SEM C1 | SEM C2 | Hermite |
+| No. Element    |      30 |     20 |     20 |      50 |
+| Error          |  1.4e-4 | 1.8e-5 | 1.4e-5 |  1.8e-5 |
+| Wall Time      |   1.842 | 18.000 | 26.650 | 121.841 |
+
+| \(nu = 0.005\) | Hermite | SEM C1 | SEM C2 |
+| No. Element    |      15 |     10 |     10 |
+| Error          |  2.0e-3 | 1.5e-3 | 1.2e-3 |
+| Wall Time      |   0.503 |  4.179 |  1.615 |
 
 ** DONE Struggles
 
