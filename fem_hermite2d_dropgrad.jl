@@ -4,7 +4,7 @@ using Printf
 using Plots
 pyplot()
 
-using Zygote: dropgrad
+using Zygote: dropgrad, ignore
 
 const NG = 8                 # number of element on each side
 const side = NG^-1 * (0:NG)
@@ -55,6 +55,13 @@ function e2n(ne)
     (n1, n2, n3, n4)
 end
 
+function loss(data, p = nothing)
+    #####
+    ##### I need some kind of dropgrad code or ignore() code here!!!!
+    #####
+    sum([element_loss(i, data) for i in 1:NG^2])
+end
+
 function train()
     # data = zeros(4, (NG+1)^2)
     # data[1, 1:(NG+1)] = dropgrad(nodes[1, 1:(NG+1)] .|> sinpi)
@@ -63,7 +70,8 @@ function train()
     #     data[1, (i-1)*(NG+1)+1] = dropgrad(0.0)
     #     data[1, i*(NG+1)] = dropgrad(0.0)
     # end
-    data = [dropgrad(zeros(4, 1)) ones(4, (NG+1)^2-1)]
+    #
+    data = zeros(4, (NG+1)^2)
 
     opt_f = OptimizationFunction(loss, GalacticOptim.AutoZygote())
     prob = OptimizationProblem(opt_f, data, nothing)
