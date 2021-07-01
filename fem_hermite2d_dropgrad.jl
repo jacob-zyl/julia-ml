@@ -4,7 +4,9 @@ using Printf
 using Plots
 pyplot()
 
-const NG = 16                 # number of element on each side
+using Zygote: dropgrad
+
+const NG = 8                 # number of element on each side
 const side = NG^-1 * (0:NG)
 const nodes = hcat(map(x->hcat(vcat.(side', x)...), side)...)
 
@@ -21,11 +23,7 @@ f_exact(x, y) = sinpi(x) * sinh(pi * (1-y)) / sinh(pi)
 fx_exact(x, y) = cospi(x) * sinh(pi * (1-y)) * pi / sinh(pi)
 fy_exact(x, y) = -sinpi(x) * cosh(pi * (1-y)) * pi / sinh(pi)
 fxy_exact(x, y) = -cospi(x) * cosh(pi * (1-y)) * pi^2 / sinh(pi)
-f_test(x::Vector) = [f_exact(x[1], x[2]),
-                     fx_exact(x[1], x[2]),
-                     fy_exact(x[1], x[2]),
-                     fxy_exact(x[1], x[2]),]
-
+f_test(x::Vector) = [f_exact(x[1], x[2]), fx_exact(x[1], x[2]), fy_exact(x[1], x[2]), fxy_exact(x[1], x[2]),]
 
 const Ainvtmp = Float64[
     1  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0 ;
@@ -57,19 +55,15 @@ function e2n(ne)
     (n1, n2, n3, n4)
 end
 
-function loss(data, p = nothing)
-    sum([element_loss(i, data) for i in 1:NG^2])
-end
-
-error(sol) = begin
-    u = sol.minimizer
-    v = hcat(([nodes[:, i] for i in 1:size(nodes, 2)] .|> f_test)...)
-    sqrt.((sum(abs2, u - v, dims=2)))
-end
-
 function train()
-    data = zeros(4, (NG+1)^2)
-    data[1, 1:(NG+1)] = nodes[1, 1:(NG+1)] .|> sinpi
+    # data = zeros(4, (NG+1)^2)
+    # data[1, 1:(NG+1)] = dropgrad(nodes[1, 1:(NG+1)] .|> sinpi)
+    # data[3, 1:(NG+1)] = dropgrad(nodes[1, 1:(NG+1)] .|> (x -> -pi * sinpi(x) / tanh(pi)))
+    # for i in 2:NG
+    #     data[1, (i-1)*(NG+1)+1] = dropgrad(0.0)
+    #     data[1, i*(NG+1)] = dropgrad(0.0)
+    # end
+    data = [dropgrad(zeros(4, 1)) ones(4, (NG+1)^2-1)]
 
     opt_f = OptimizationFunction(loss, GalacticOptim.AutoZygote())
     prob = OptimizationProblem(opt_f, data, nothing)
@@ -82,70 +76,12 @@ function element_loss(ne, data)
     Δx = nodes[1, n2] - nodes[1, n1]
     Δy = nodes[2, n4] - nodes[2, n1]
     ratio = Float64[1, Δx, Δy, Δx * Δy]
-    if ne == 1
-        f = @views [
-            [0; data[2:4, n1]] .* ratio;
-            [sinpi(NG^-1); data[2:4, n2]] .* ratio;
-            data[:, n3] .* ratio;
-            [0; data[2:4, n4]] .* ratio;
-        ]
-    elseif ne == NG
-        f = @views [
-            [sinpi((ne-1)*NG^-1); data[2:4, n1]] .* ratio;
-            [0; data[2:4, n2]] .* ratio;
-            [0; data[2:4, n3]] .* ratio;
-            data[:, n4] .* ratio
-        ]
-    elseif ne == NG*(NG-1) + 1
-        f = @views [
-            [0; data[2:4, n1]] .* ratio;
-            data[:, n2] .* ratio
-            [0; data[2:4, n3]] .* ratio;
-            [0; data[2:4, n4]] .* ratio;
-        ]
-    elseif ne == NG^2
-        f = @views [
-            data[:, n1] .* ratio;
-            [0; data[2:4, n2]] .* ratio;
-            [0; data[2:4, n3]] .* ratio;
-            [0; data[2:4, n4]] .* ratio;
-        ]
-    elseif rem(ne, NG) == 1
-        f = @views [
-            [0; data[2:4, n1]] .* ratio;
-            data[:, n2] .* ratio;
-            data[:, n3] .* ratio;
-            [0; data[2:4, n4]] .* ratio;
-        ]
-    elseif rem(ne, NG) == 0
-        f = @views [
-            data[:, n1] .* ratio;
-            [0; data[2:4, n2]] .* ratio;
-            [0; data[2:4, n3]] .* ratio;
-            data[:, n4] .* ratio
-        ]
-    elseif ne < NG
-        f = @views [
-            [sinpi((ne-1)*NG^-1); data[2:4, n1]] .* ratio;
-            [sinpi(ne*NG^-1); data[2:4, n2]] .* ratio;
-            data[:, n3] .* ratio;
-            data[:, n4] .* ratio
-        ]
-    elseif ne > NG*(NG-1)
-        f = @views [
-            data[:, n1] .* ratio;
-            data[:, n2] .* ratio;
-            [0; data[2:4, n3]] .* ratio;
-            [0; data[2:4, n4]] .* ratio;
-        ]
-    else
-        f = @views [
-            data[:, n1] .* ratio;
-            data[:, n2] .* ratio;
-            data[:, n3] .* ratio;
-            data[:, n4] .* ratio
-        ]
-    end
+    f = @views [
+        data[:, n1] .* ratio;
+        data[:, n2] .* ratio;
+        data[:, n3] .* ratio;
+        data[:, n4] .* ratio
+    ]
     α = reshape(Ainv * f, 4, 4)
     vv1 = dot(DDPV1', α, PV1)
     vv2 = dot(DDPV2', α, PV1)

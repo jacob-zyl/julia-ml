@@ -4,7 +4,7 @@ using Printf
 using Plots
 pyplot()
 
-const NG = 16                 # number of element on each side
+const NG = 8   # number of element on each side
 const side = NG^-1 * (0:NG)
 const nodes = hcat(map(x->hcat(vcat.(side', x)...), side)...)
 
@@ -25,7 +25,6 @@ f_test(x::Vector) = [f_exact(x[1], x[2]),
                      fx_exact(x[1], x[2]),
                      fy_exact(x[1], x[2]),
                      fxy_exact(x[1], x[2]),]
-
 
 const Ainvtmp = Float64[
     1  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0 ;
@@ -64,12 +63,13 @@ end
 error(sol) = begin
     u = sol.minimizer
     v = hcat(([nodes[:, i] for i in 1:size(nodes, 2)] .|> f_test)...)
-    sqrt.((sum(abs2, u - v, dims=2)))
+    sqrt.((sum(abs2, u - v, dims=2))./(sum(abs, v, dims=2)))
 end
 
 function train()
     data = zeros(4, (NG+1)^2)
     data[1, 1:(NG+1)] = nodes[1, 1:(NG+1)] .|> sinpi
+    data[3, 1:(NG+1)] = nodes[1, 1:(NG+1)] .|> (x -> -pi * sinpi(x) / tanh(pi))
 
     opt_f = OptimizationFunction(loss, GalacticOptim.AutoZygote())
     prob = OptimizationProblem(opt_f, data, nothing)
@@ -84,15 +84,15 @@ function element_loss(ne, data)
     ratio = Float64[1, Δx, Δy, Δx * Δy]
     if ne == 1
         f = @views [
-            [0; data[2:4, n1]] .* ratio;
-            [sinpi(NG^-1); data[2:4, n2]] .* ratio;
+            [0; data[2, n1]; 0; data[4, n1]] .* ratio;
+            [sinpi(NG^-1); data[2, n2]; 0; data[4, n2]] .* ratio;
             data[:, n3] .* ratio;
             [0; data[2:4, n4]] .* ratio;
         ]
     elseif ne == NG
         f = @views [
-            [sinpi((ne-1)*NG^-1); data[2:4, n1]] .* ratio;
-            [0; data[2:4, n2]] .* ratio;
+            [sinpi((ne-1)*NG^-1); data[2, n1]; 0; data[4, n1]] .* ratio;
+            [0; data[2, n2]; 0; data[4, n2]] .* ratio;
             [0; data[2:4, n3]] .* ratio;
             data[:, n4] .* ratio
         ]
@@ -126,17 +126,10 @@ function element_loss(ne, data)
         ]
     elseif ne < NG
         f = @views [
-            [sinpi((ne-1)*NG^-1); data[2:4, n1]] .* ratio;
-            [sinpi(ne*NG^-1); data[2:4, n2]] .* ratio;
+            [sinpi((ne-1)*NG^-1); data[2, n1]; -sinpi((ne-1)*NG^-1)*pi/tanh(pi); data[4, n1]] .* ratio;
+            [sinpi(ne*NG^-1); data[2, n2]; -sinpi(ne*NG^-1)*pi/tanh(pi); data[4, n2]] .* ratio;
             data[:, n3] .* ratio;
             data[:, n4] .* ratio
-        ]
-    elseif ne > NG*(NG-1)
-        f = @views [
-            data[:, n1] .* ratio;
-            data[:, n2] .* ratio;
-            [0; data[2:4, n3]] .* ratio;
-            [0; data[2:4, n4]] .* ratio;
         ]
     else
         f = @views [
