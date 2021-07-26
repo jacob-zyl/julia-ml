@@ -6,23 +6,6 @@ pyplot()
 
 using Zygote: dropgrad, ignore, Buffer
 
-const NG = 16                # number of element on each side
-const side = NG^-1 * (0:NG)
-const upper_wall = ((NG+1)*NG+1):(NG+1)^2
-const lower_wall = 1:(NG+1)
-const left_wall = 1:(NG+1):(NG*(NG+1)+1)
-const right_wall = (NG+1):(NG+1):(NG+1)^2
-const nodes = hcat(map(x->hcat(vcat.(side', x)...), side)...)
-
-const P1 = 0.21132486540518708  # Gauss Points on interval [0, 1]
-const P2 = 0.7886751345948129
-const PV1 = Float64[1, P1, P1^2, P1^3]
-const PV2 = Float64[1, P2, P2^2, P2^3]
-const DPV1 = Float64[0, 1, 2P1, 3P1^2]
-const DPV2 = Float64[0, 1, 2P2, 3P2^2]
-const DDPV1 = Float64[0, 0, 2, 6P1]
-const DDPV2 = Float64[0, 0, 2, 6P2]
-
 f_exact(x, y) = sinpi(x) * sinh(pi * y) / sinh(pi)
 fx_exact(x, y) = cospi(x) * sinh(pi * y) * pi / sinh(pi)
 fy_exact(x, y) = sinpi(x) * cosh(pi * y) * pi / sinh(pi)
@@ -49,56 +32,84 @@ const Ainvtmp = Float64[
 
 const Ainv = Ainvtmp[:, [4(0:3).+1; 4(0:3).+2; 4(0:3).+4; 4(0:3).+3]]
 
-function e2n(ne)
-    quotient = div(ne - 1, NG)
-    res = ne - NG * quotient
-    n1 = quotient * (NG + 1) + res
+function e2n(ne, ng)
+    quotient = div(ne - 1, ng)
+    res = ne - ng * quotient
+    n1 = quotient * (ng + 1) + res
     n2 = n1 + 1
-    n4 = n2 + NG
+    n4 = n2 + ng
     n3 = n4 + 1
     (n1, n2, n3, n4)
 end
 
-error(sol) = begin
+error(sol, nodes) = begin
     u = sol.minimizer
     v = hcat(([nodes[:, i] for i in 1:size(nodes, 2)] .|> f_test)...)
     sqrt.((mean(abs2, u - v, dims=2)))
 end
 
+error(result::Tuple) = begin
+    error(result[1], result[3])
+end
+
 show_map(sol) = begin
     theme(:vibrant)
     u = sol.minimizer[1, :]
-    umap = reshape(u, NG+1, NG+1)
-    heatmap(umap, aspect_ratio=1, show=true)
+    ng = sqrt(length(u)) - 1 |> Integer
+    umap = reshape(u, ng+1, ng+1)
+    heatmap(umap, aspect_ratio=1, show=true, clim=(0, 1))
 end
 
-function loss(data, p = nothing)
+walls(NG) = begin
+    upper_wall = ((NG+1)*NG+1):(NG+1)^2
+    lower_wall = 1:(NG+1)
+    left_wall = 1:(NG+1):(NG*(NG+1)+1)
+    right_wall = (NG+1):(NG+1):(NG+1)^2
+    (upper_wall, lower_wall, left_wall, right_wall)
+end
+
+
+function train(NG)
+    side = NG^-1 * (0:NG)
+    nodes = hcat(map(x->hcat(vcat.(side', x)...), side)...)
+    data = zeros(4, (NG+1)^2)
+    upper_wall, lower_wall, left_wall, right_wall = walls(NG)
+    data[1, upper_wall] = nodes[1, upper_wall] .|> sinpi
+    # data[3, upper_wall] = nodes[1, upper_wall] .|> (x -> pi * sinpi(x) / tanh(pi))
+
+    opt_f = OptimizationFunction(loss, GalacticOptim.AutoZygote())
+    prob = OptimizationProblem(opt_f, data, nodes)
+    sol = solve(prob, LBFGS())
+    (sol, prob, nodes)
+end
+
+function loss(data, nodes)
+    ng = sqrt(size(data, 2)) - 1 |> Integer
+    upper_wall, lower_wall, left_wall, right_wall = walls(ng)
     buf = Buffer(data)
     buf[:, :] = data[:, :]
     buf[1, left_wall] = dropgrad(data[1, left_wall])
     buf[1, right_wall] = dropgrad(data[1, right_wall])
+    buf[1, lower_wall] = dropgrad(data[1, lower_wall])
     buf[1, upper_wall] = dropgrad(data[1, upper_wall])
-    buf[3, upper_wall] = dropgrad(data[3, upper_wall])
     # buf[1, lower_wall] = dropgrad(data[1, lower_wall])
     data = copy(buf)
 
-    sum([element_loss(i, data) for i in 1:NG^2])
+    sum([element_loss(i, ng, data, nodes) for i in 1:ng^2])
 end
 
-function train()
-    # data = zeros(4, (NG+1)^2)
-    data = zeros(4, (NG+1)^2)
-    data[1, upper_wall] = nodes[1, upper_wall] .|> sinpi
-    data[3, upper_wall] = nodes[1, upper_wall] .|> (x -> pi * sinpi(x) / tanh(pi))
+function element_loss(ne, ng, data, nodes)
 
-    opt_f = OptimizationFunction(loss, GalacticOptim.AutoZygote())
-    prob = OptimizationProblem(opt_f, data, nothing)
-    sol = solve(prob, LBFGS())
-    (sol, prob)
-end
+    P1 = 0.21132486540518708  # Gauss Points on interval [0, 1]
+    P2 = 0.7886751345948129
+    PV1 = Float64[1, P1, P1^2, P1^3]
+    PV2 = Float64[1, P2, P2^2, P2^3]
+    DPV1 = Float64[0, 1, 2P1, 3P1^2]
+    DPV2 = Float64[0, 1, 2P2, 3P2^2]
+    DDPV1 = Float64[0, 0, 2, 6P1]
+    DDPV2 = Float64[0, 0, 2, 6P2]
 
-function element_loss(ne, data)
-    n1, n2, n3, n4 = e2n(ne)
+    n1, n2, n3, n4 = e2n(ne, ng)
     Δx = nodes[1, n2] - nodes[1, n1]
     Δy = nodes[2, n4] - nodes[2, n1]
     ratio = Float64[1, Δx, Δy, Δx * Δy]
@@ -121,5 +132,5 @@ function element_loss(ne, data)
     r2 = (vv2 + ww2)^2
     r3 = (vv3 + ww3)^2
     r4 = (vv4 + ww4)^2
-    +(r1, r2, r3, r4) * Δx * Δy
+    +(r1, r2, r3, r4) * Δx * Δy * 0.25
 end

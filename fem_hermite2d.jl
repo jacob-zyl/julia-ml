@@ -26,7 +26,6 @@ f_test(x::Vector) = [f_exact(x[1], x[2]),
                      fy_exact(x[1], x[2]),
                      fxy_exact(x[1], x[2]),]
 
-
 const Ainvtmp = Float64[
     1  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0 ;
     0  0  0  0  1  0  0  0  0  0  0  0  0  0  0  0 ;
