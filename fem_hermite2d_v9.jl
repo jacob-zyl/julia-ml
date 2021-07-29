@@ -1,13 +1,85 @@
 using LinearAlgebra, Statistics
 using GalacticOptim, Optim
-using ModelingToolKit
 using Printf
 using Plots
 pyplot()
 
 using Zygote: dropgrad, ignore, Buffer, jacobian, hessian
-using FastGaussQuadrature
-const P, W = gausslegendre(2)
+
+using JLD
+
+train() = begin
+    mesh = load("mesh.jld")
+    data = load("data.jld", "data")
+    opt_f = OptimizationFunction(loss, GalacticOptim.AutoZygote())
+    prob = OptimizationProblem(opt_f, data, mesh)
+    sol = solve(prob, ConjugateGradient())
+    (sol, mesh, prob, opt_f)
+end
+
+loss(data, fem_dict) = begin
+    ng = fem_dict["ng"]
+    ne = fem_dict["ne"]
+    nodes = fem_dict["nodes"]
+    elnodes = fem_dict["elnodes"]
+    upper_wall, lower_wall, left_wall, right_wall = walls(ng)
+
+    buf = Buffer(data)
+    buf[:, :] = data[:, :]
+    buf[1, lower_wall] = dropgrad(data[1, lower_wall])
+    buf[1, upper_wall] = dropgrad(data[1, upper_wall])
+    buf[1, left_wall] = dropgrad(data[1, left_wall])
+    buf[1, right_wall] = dropgrad(data[1, right_wall])
+    data = copy(buf)
+
+    #sum([element_loss(i, ng, data, fem_dict) for i in 1:ng^2])
+    sum(k -> element_loss(k, ng, data, nodes, elnodes), 1:ne)
+end
+
+element_loss(ne, ng, data, nodes, elnodes) = begin
+
+    n1, n2, n3, n4 = elnodes[:, ne]
+
+    Δx = nodes[1, n2] - nodes[1, n1]
+    Δy = nodes[2, n4] - nodes[2, n1]
+
+    ratio = Float64[1, 0.5Δx, 0.5Δy, 0.25Δx*Δy]
+    f = @views data[:, [n1, n2, n3, n4]] .* ratio
+    # f1 = dot(f, fem_dict["Hi1"])
+    # f2 = dot(f, fem_dict["Hi2"])
+    # f3 = dot(f, fem_dict["Hi3"])
+    # f4 = dot(f, fem_dict["Hi4"])
+    # fx1 = dot(f, fem_dict["Hxi1"]) * 2 * Δx^-1
+    # fx2 = dot(f, fem_dict["Hxi2"]) * 2 * Δx^-1
+    # fx3 = dot(f, fem_dict["Hxi3"]) * 2 * Δx^-1
+    # fx4 = dot(f, fem_dict["Hxi4"]) * 2 * Δx^-1
+    # fy1 = dot(f, fem_dict["Hyi1"]) * 2 * Δy^-1
+    # fy2 = dot(f, fem_dict["Hyi2"]) * 2 * Δy^-1
+    # fy3 = dot(f, fem_dict["Hyi3"]) * 2 * Δy^-1
+    # fy4 = dot(f, fem_dict["Hyi4"]) * 2 * Δy^-1
+    fxx1 = dot(f, Hxxi1) * 4 * Δx^-2
+    fxx2 = dot(f, Hxxi2) * 4 * Δx^-2
+    fxx3 = dot(f, Hxxi3) * 4 * Δx^-2
+    fxx4 = dot(f, Hxxi4) * 4 * Δx^-2
+    fyy1 = dot(f, Hyyi1) * 4 * Δy^-2
+    fyy2 = dot(f, Hyyi2) * 4 * Δy^-2
+    fyy3 = dot(f, Hyyi3) * 4 * Δy^-2
+    fyy4 = dot(f, Hyyi4) * 4 * Δy^-2
+    # fxy1 = dot(f, fem_dict["Hxyi1"]) * 4 * Δx^-1 * Δy^-1
+    # fxy2 = dot(f, fem_dict["Hxyi2"]) * 4 * Δx^-1 * Δy^-1
+    # fxy3 = dot(f, fem_dict["Hxyi3"]) * 4 * Δx^-1 * Δy^-1
+    # fxy4 = dot(f, fem_dict["Hxyi4"]) * 4 * Δx^-1 * Δy^-1
+    r1 = (fxx1 + fyy1)^2
+    r2 = (fxx2 + fyy2)^2
+    r3 = (fxx3 + fyy3)^2
+    r4 = (fxx4 + fyy4)^2
+    +(r1, r2, r3, r4) * Δx * Δy * 0.25
+end
+
+
+
+
+
 
 f_exact(x, y) = sinpi(x) * sinh(pi * y) / sinh(pi)
 fx_exact(x, y) = cospi(x) * sinh(pi * y) * pi / sinh(pi)
@@ -15,17 +87,8 @@ fy_exact(x, y) = sinpi(x) * cosh(pi * y) * pi / sinh(pi)
 fxy_exact(x, y) = cospi(x) * cosh(pi * y) * pi^2 / sinh(pi)
 f_test(x::Vector) = [f_exact(x[1], x[2]), fx_exact(x[1], x[2]), fy_exact(x[1], x[2]), fxy_exact(x[1], x[2])]
 
-e2n(ne, ng) = begin
-    quotient = div(ne - 1, ng)
-    res = ne - ng * quotient
-    n1 = quotient * (ng + 1) + res
-    n2 = n1 + 1
-    n4 = n2 + ng
-    n3 = n4 + 1
-    (n1, n2, n3, n4)
-end
-
-error(sol, nodes) = begin
+error(sol, mesh) = begin
+    nodes = mesh["nodes"]
     u = sol.minimizer
     v = hcat(([nodes[:, i] for i in 1:size(nodes, 2)] .|> f_test)...)
     sqrt.((mean(abs2, u - v, dims=2)))
@@ -67,6 +130,15 @@ walls(NG) = begin
     right_wall = (NG+1):(NG+1):(NG+1)^2
     (upper_wall, lower_wall, left_wall, right_wall)
 end
+
+
+
+
+
+
+
+using FastGaussQuadrature
+const P, W = gausslegendre(2)
 
 # basis related to point (-1, -1)
 H1(x, y) = 0.0625 * (1 - x)^2 * (1 - y)^2 * (2 + x) * (2 + y)
@@ -153,79 +225,12 @@ const Hxxi4 = map(f -> vec(hessian(f, P4))[1], [H1, H2, H3, H4, H5, H6, H7, H8, 
 const Hyyi4 = map(f -> vec(hessian(f, P4))[4], [H1, H2, H3, H4, H5, H6, H7, H8, H9, H10, H11, H12, H13, H14, H15, H16])
 const Hxyi4 = map(f -> vec(hessian(f, P4))[2], [H1, H2, H3, H4, H5, H6, H7, H8, H9, H10, H11, H12, H13, H14, H15, H16])
 
-function train(side::Vector)
-    NG = length(side) - 1
-    nodes = hcat(map(x->hcat(vcat.(side', x)...), side)...)
-    data = zeros(4, (NG+1)^2)
-    upper_wall, lower_wall, left_wall, right_wall = walls(NG)
-    data[1, upper_wall] = nodes[1, upper_wall] .|> sinpi
-    # data[3, upper_wall] = nodes[1, upper_wall] .|> (x -> pi * sinpi(x) / tanh(pi))
-    # data[1, lower_wall] = nodes[1, lower_wall] .|> sinpi
-    # data[1, left_wall] = -nodes[2, left_wall] .|> sinpi
-    # data[1, right_wall] = 1 .- nodes[2, right_wall] .|> sinpi
-
-    opt_f = OptimizationFunction(loss, GalacticOptim.AutoZygote())
-    prob = OptimizationProblem(opt_f, data, nodes)
-    sol = solve(prob, BFGS())
-    (sol, prob, nodes)
-end
-
-function train(NG)
-    side = NG^-1 * (0:NG) |> collect
-    train(side)
-end
-
-function loss(data, nodes)
-    ng = sqrt(size(data, 2)) - 1 |> Integer
-    upper_wall, lower_wall, left_wall, right_wall = walls(ng)
-    buf = Buffer(data)
-    buf[:, :] = data[:, :]
-    buf[1, lower_wall] = dropgrad(data[1, lower_wall])
-    buf[1, upper_wall] = dropgrad(data[1, upper_wall])
-    buf[1, left_wall] = dropgrad(data[1, left_wall])
-    buf[1, right_wall] = dropgrad(data[1, right_wall])
-    data = copy(buf)
-
-    #sum([element_loss(i, ng, data, nodes) for i in 1:ng^2])
-    sum(k -> element_loss(k, ng, data, nodes), 1:ng^2)
-end
-
-function element_loss(ne, ng, data, nodes)
-
-    n1, n2, n3, n4 = e2n(ne, ng)
-
-    Δx = nodes[1, n2] - nodes[1, n1]
-    Δy = nodes[2, n4] - nodes[2, n1]
-
-    ratio = Float64[1, 0.5Δx, 0.5Δy, 0.25Δx*Δy]
-    f = @views [data[:, n1] data[:, n2] data[:, n3] data[:, n4]] .* ratio
-    # f1 = dot(f, Hi1)
-    # f2 = dot(f, Hi2)
-    # f3 = dot(f, Hi3)
-    # f4 = dot(f, Hi4)
-    # fx1 = dot(f, Hxi1) * 2 * Δx^-1
-    # fx2 = dot(f, Hxi2) * 2 * Δx^-1
-    # fx3 = dot(f, Hxi3) * 2 * Δx^-1
-    # fx4 = dot(f, Hxi4) * 2 * Δx^-1
-    # fy1 = dot(f, Hyi1) * 2 * Δy^-1
-    # fy2 = dot(f, Hyi2) * 2 * Δy^-1
-    # fy3 = dot(f, Hyi3) * 2 * Δy^-1
-    # fy4 = dot(f, Hyi4) * 2 * Δy^-1
-    fxx1 = dot(f, Hxxi1) * 4 * Δx^-2
-    fxx2 = dot(f, Hxxi2) * 4 * Δx^-2
-    fxx3 = dot(f, Hxxi3) * 4 * Δx^-2
-    fxx4 = dot(f, Hxxi4) * 4 * Δx^-2
-    fyy1 = dot(f, Hyyi1) * 4 * Δy^-2
-    fyy2 = dot(f, Hyyi2) * 4 * Δy^-2
-    fyy3 = dot(f, Hyyi3) * 4 * Δy^-2
-    fyy4 = dot(f, Hyyi4) * 4 * Δy^-2
-    # fxy1 = dot(f, Hxyi1) * 4 * Δx^-1 * Δy^-1
-    # fxy2 = dot(f, Hxyi2) * 4 * Δx^-1 * Δy^-1
-    # fxy3 = dot(f, Hxyi3) * 4 * Δx^-1 * Δy^-1
-    # fxy4 = dot(f, Hxyi4) * 4 * Δx^-1 * Δy^-1
-    r1 = (fxx1 + fyy1)^2
-    r2 = (fxx2 + fyy2)^2
-    r3 = (fxx3 + fyy3)^2
-    r4 = (fxx4 + fyy4)^2
-    +(r1, r2, r3, r4) * Δx * Δy * 0.25
+e2n(ne, ng) = begin
+    quotient = div(ne - 1, ng)
+    res = ne - ng * quotient
+    n1 = quotient * (ng + 1) + res
+    n2 = n1 + 1
+    n4 = n2 + ng
+    n3 = n4 + 1
+    (n1, n2, n3, n4)
 end
