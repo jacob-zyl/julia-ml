@@ -4,7 +4,7 @@ using Printf
 using Plots
 pyplot()
 
-using Zygote: dropgrad, ignore, Buffer
+using Zygote: dropgrad, ignore, Buffer, jacobian, hessian
 
 using JLD
 
@@ -87,7 +87,8 @@ fy_exact(x, y) = sinpi(x) * cosh(pi * y) * pi / sinh(pi)
 fxy_exact(x, y) = cospi(x) * cosh(pi * y) * pi^2 / sinh(pi)
 f_test(x::Vector) = [f_exact(x[1], x[2]), fx_exact(x[1], x[2]), fy_exact(x[1], x[2]), fxy_exact(x[1], x[2])]
 
-error(sol, nodes) = begin
+error(sol, mesh) = begin
+    nodes = mesh["nodes"]
     u = sol.minimizer
     v = hcat(([nodes[:, i] for i in 1:size(nodes, 2)] .|> f_test)...)
     sqrt.((mean(abs2, u - v, dims=2)))
@@ -139,6 +140,9 @@ end
 using FastGaussQuadrature
 const P, W = gausslegendre(2)
 
+# basis related to point (-1, -1)
+H1(x, y) = 0.0625 * (1 - x)^2 * (1 - y)^2 * (2 + x) * (2 + y)
+H2(x, y) = 0.0625 * (1 - x)^2 * (1 - y)^2 * (x + 1) * (2 + y)
 H3(x, y) = 0.0625 * (1 - x)^2 * (1 - y)^2 * (2 + x) * (y + 1)
 H4(x, y) = 0.0625 * (1 - x)^2 * (1 - y)^2 * (x + 1) * (y + 1)
 

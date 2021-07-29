@@ -1,6 +1,5 @@
 using JLD
 using FastGaussQuadrature
-using Zygote
 
 gen() = begin
     # fem_dict = load("prob.jld")
