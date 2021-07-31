@@ -32,7 +32,6 @@ gen() = begin
     @save "data.jld" data
 end
 
-
 e2nvec(ne, ng) = begin
     quotient = div(ne - 1, ng)
     res = ne - ng * quotient
