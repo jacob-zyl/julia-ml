@@ -8,20 +8,28 @@ using Zygote: dropgrad, ignore, Buffer, jacobian, hessian
 
 using JLD
 
+using Printf
+
 train() = begin
     mesh = load("mesh.jld")
     data = load("data.jld", "data")
     opt_f = OptimizationFunction(loss, GalacticOptim.AutoZygote())
-    prob = OptimizationProblem(opt_f, data, mesh)
-    sol = solve(prob, ConjugateGradient())
-    (sol, mesh, prob, opt_f)
+
+    dt = 0.01
+    for iteration in 1:10
+        prob = OptimizationProblem(opt_f, data, (dt, mesh))
+        sol = solve(prob, ConjugateGradient())
+        data = sol.minimizer
+        @save "data"*(@sprintf "%04i" iteration)*".jld" data
+    end
 end
 
 loss(data, fem_dict) = begin
-    ng = fem_dict["ng"]
-    ne = fem_dict["ne"]
-    nodes = fem_dict["nodes"]
-    elnodes = fem_dict["elnodes"]
+    dt, mesh = fem_dict
+    ng = mesh["ng"]
+    ne = mesh["ne"]
+    nodes = mesh["nodes"]
+    elnodes = mesh["elnodes"]
     upper_wall, lower_wall, left_wall, right_wall = walls(ng)
 
     buf = Buffer(data)
@@ -33,30 +41,31 @@ loss(data, fem_dict) = begin
     data = copy(buf)
 
     #sum([element_loss(i, ng, data, fem_dict) for i in 1:ng^2])
-    sum(k -> element_loss(k, ng, data, nodes, elnodes), 1:ne)
+    sum(k -> element_loss(k, ng, data, nodes, elnodes, dt), 1:ne)
 end
 
-element_loss(ne, ng, data, nodes, elnodes) = begin
+element_loss(ne, ng, data, nodes, elnodes, dt) = begin
 
     n1, n2, n3, n4 = elnodes[:, ne]
+    rdt = 1.0 / dt
 
     Δx = nodes[1, n2] - nodes[1, n1]
     Δy = nodes[2, n4] - nodes[2, n1]
 
     ratio = Float64[1, 0.5Δx, 0.5Δy, 0.25Δx*Δy]
     f = @views data[:, [n1, n2, n3, n4]] .* ratio
-    # f1 = dot(f, fem_dict["Hi1"])
-    # f2 = dot(f, fem_dict["Hi2"])
-    # f3 = dot(f, fem_dict["Hi3"])
-    # f4 = dot(f, fem_dict["Hi4"])
-    # fx1 = dot(f, fem_dict["Hxi1"]) * 2 * Δx^-1
-    # fx2 = dot(f, fem_dict["Hxi2"]) * 2 * Δx^-1
-    # fx3 = dot(f, fem_dict["Hxi3"]) * 2 * Δx^-1
-    # fx4 = dot(f, fem_dict["Hxi4"]) * 2 * Δx^-1
-    # fy1 = dot(f, fem_dict["Hyi1"]) * 2 * Δy^-1
-    # fy2 = dot(f, fem_dict["Hyi2"]) * 2 * Δy^-1
-    # fy3 = dot(f, fem_dict["Hyi3"]) * 2 * Δy^-1
-    # fy4 = dot(f, fem_dict["Hyi4"]) * 2 * Δy^-1
+    f1 = dot(f, Hi1)
+    f2 = dot(f, Hi2)
+    f3 = dot(f, Hi3)
+    f4 = dot(f, Hi4)
+    # fx1 = dot(f, Hxi1) * 2 * Δx^-1
+    # fx2 = dot(f, Hxi2) * 2 * Δx^-1
+    # fx3 = dot(f, Hxi3) * 2 * Δx^-1
+    # fx4 = dot(f, Hxi4) * 2 * Δx^-1
+    # fy1 = dot(f, Hyi1) * 2 * Δy^-1
+    # fy2 = dot(f, Hyi2) * 2 * Δy^-1
+    # fy3 = dot(f, Hyi3) * 2 * Δy^-1
+    # fy4 = dot(f, Hyi4) * 2 * Δy^-1
     fxx1 = dot(f, Hxxi1) * 4 * Δx^-2
     fxx2 = dot(f, Hxxi2) * 4 * Δx^-2
     fxx3 = dot(f, Hxxi3) * 4 * Δx^-2
@@ -65,14 +74,19 @@ element_loss(ne, ng, data, nodes, elnodes) = begin
     fyy2 = dot(f, Hyyi2) * 4 * Δy^-2
     fyy3 = dot(f, Hyyi3) * 4 * Δy^-2
     fyy4 = dot(f, Hyyi4) * 4 * Δy^-2
-    # fxy1 = dot(f, fem_dict["Hxyi1"]) * 4 * Δx^-1 * Δy^-1
-    # fxy2 = dot(f, fem_dict["Hxyi2"]) * 4 * Δx^-1 * Δy^-1
-    # fxy3 = dot(f, fem_dict["Hxyi3"]) * 4 * Δx^-1 * Δy^-1
-    # fxy4 = dot(f, fem_dict["Hxyi4"]) * 4 * Δx^-1 * Δy^-1
-    r1 = (fxx1 + fyy1)^2
-    r2 = (fxx2 + fyy2)^2
-    r3 = (fxx3 + fyy3)^2
-    r4 = (fxx4 + fyy4)^2
+    # fxy1 = dot(f, Hxyi1) * 4 * Δx^-1 * Δy^-1
+    # fxy2 = dot(f, Hxyi2) * 4 * Δx^-1 * Δy^-1
+    # fxy3 = dot(f, Hxyi3) * 4 * Δx^-1 * Δy^-1
+    # fxy4 = dot(f, Hxyi4) * 4 * Δx^-1 * Δy^-1
+    finit = dropgrad(f)
+    finit1 = dot(finit, Hi1)
+    finit2 = dot(finit, Hi2)
+    finit3 = dot(finit, Hi3)
+    finit4 = dot(finit, Hi4)
+    r1 = (0.01*(fxx1 + fyy1) + rdt * (finit1 - f1))^2
+    r2 = (0.01*(fxx2 + fyy2) + rdt * (finit2 - f2))^2
+    r3 = (0.01*(fxx3 + fyy3) + rdt * (finit3 - f3))^2
+    r4 = (0.01*(fxx4 + fyy4) + rdt * (finit4 - f4))^2
     +(r1, r2, r3, r4) * Δx * Δy * 0.25
 end
 
@@ -99,8 +113,12 @@ error(result::Tuple) = begin
 end
 
 show_map(sol) = begin
-    theme(:vibrant)
     u = sol.minimizer[1, :]
+    show_map(u)
+end
+
+show_map(u::Array) = begin
+    theme(:vibrant)
     ng = sqrt(length(u)) - 1 |> Integer
     umap = reshape(u, ng+1, ng+1)
     xs = ng^-1 * (0:ng)
@@ -233,4 +251,46 @@ e2n(ne, ng) = begin
     n4 = n2 + ng
     n3 = n4 + 1
     (n1, n2, n3, n4)
+end
+e2nvec(ne, ng) = begin
+    quotient = div(ne - 1, ng)
+    res = ne - ng * quotient
+    n1 = quotient * (ng + 1) + res
+    n2 = n1 + 1
+    n4 = n2 + ng
+    n3 = n4 + 1
+    [n1, n2, n3, n4]
+end
+
+using FastGaussQuadrature
+
+gen() = begin
+    # fem_dict = load("prob.jld")
+    ng = 10
+    nn = (ng + 1)^2
+    ne = ng^2
+
+    walls(NG) = begin
+        upper_wall = ((NG+1)*NG+1):(NG+1)^2
+        lower_wall = 1:(NG+1)
+        left_wall = 1:(NG+1):(NG*(NG+1)+1)
+        right_wall = (NG+1):(NG+1):(NG+1)^2
+        (upper_wall, lower_wall, left_wall, right_wall)
+    end
+    upper_wall, lower_wall, left_wall, right_wall = walls(ng)
+
+    side = ng^-1 * (0:ng) |> collect
+    nodes = hcat(map(x->hcat(vcat.(side', x)...), side)...)
+    data = zeros(4, nn)
+
+    data[1, upper_wall] = nodes[1, upper_wall] .|> sinpi
+    # data[3, upper_wall] = (nodes[1, upper_wall] .|> sinpi) .* (pi / tanh(pi))
+    # data[1, lower_wall] = nodes[1, lower_wall] .|> sinpi
+    # data[1, left_wall] = -nodes[2, left_wall] .|> sinpi
+    # data[1, right_wall] = 1 .- nodes[2, right_wall] .|> sinpi
+
+    elnodes = hcat(map(p -> e2nvec(p, ng), 1:ne)...)
+
+    @save "mesh.jld" ng ne nn elnodes nodes
+    @save "data.jld" data
 end

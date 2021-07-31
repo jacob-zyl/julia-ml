@@ -33,7 +33,35 @@ loss(data, fem_dict) = begin
     data = copy(buf)
 
     #sum([element_loss(i, ng, data, fem_dict) for i in 1:ng^2])
-    sum(k -> element_loss(k, ng, data, nodes, elnodes), 1:ne)
+    # sum(k -> element_loss(k, ng, data, nodes, elnodes), 1:ne)
+    sum = 0
+    for iters in 1:ne
+        indice = elnodes[:, iters]
+        elnode = @views nodes[:, indice]
+        eldata = @views data[:, indice]
+        sum += element_loss2(elnode, eldata)
+    end
+    sum
+end
+
+element_loss2(nodes, data) = begin
+    Δx = nodes[1, 2] - nodes[1, 1]
+    Δy = nodes[2, 4] - nodes[2, 1]
+    ratio = Float64[1, 0.5Δx, 0.5Δy, 0.25Δx*Δy]
+    f = data .* ratio
+    fxx1 = dot(f, Hxxi1) * 4 * Δx^-2
+    fxx2 = dot(f, Hxxi2) * 4 * Δx^-2
+    fxx3 = dot(f, Hxxi3) * 4 * Δx^-2
+    fxx4 = dot(f, Hxxi4) * 4 * Δx^-2
+    fyy1 = dot(f, Hyyi1) * 4 * Δy^-2
+    fyy2 = dot(f, Hyyi2) * 4 * Δy^-2
+    fyy3 = dot(f, Hyyi3) * 4 * Δy^-2
+    fyy4 = dot(f, Hyyi4) * 4 * Δy^-2
+    r1 = (fxx1 + fyy1)^2
+    r2 = (fxx2 + fyy2)^2
+    r3 = (fxx3 + fyy3)^2
+    r4 = (fxx4 + fyy4)^2
+    +(r1, r2, r3, r4) * Δx * Δy * 0.25
 end
 
 element_loss(ne, ng, data, nodes, elnodes) = begin
