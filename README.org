@@ -38,6 +38,20 @@ Something to compare:
 | fem_hermite4.jl | nonlinear ODE                |
 |-----------------+------------------------------|
 
+|---------------------------+------------------------------------------------------|
+| fem_hermite2d.jl          | A very basic implementation                          |
+| fem_hermite2d_dropgrad.jl | A truly working one                                  |
+| fem_hermite2d_v2.jl       | Less constants in global namespace                   |
+| fem_hermite2d_v3.jl       | A failed trial on \(f_{xy}\).                        |
+| fem_hermtie2d_v4.jl       | Isoparametric element implementation                 |
+| fem_hermtie2d_v5.jl       | Complete isoparametric element                       |
+| fem_hermite2d_v6.jl       | ~ConjugateGradient()~ used.                          |
+| fem_hermite2d_v7.jl       | Failed trial on ~dropgrad()~ position in source code |
+| fem_hermite2d_v8.jl       | Summation optimized.                                 |
+| fem_hermite2d_v9.jl       | Summation optimized again and code beautified.       |
+| fem_hermite2d_v10.jl      | Transient code deployed.                             |
+|---------------------------+------------------------------------------------------|
+
 ** The Spectral Element Method
 
 |---------+-----------------------------------------------------------|
