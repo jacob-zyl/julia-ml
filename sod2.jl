@@ -1,7 +1,3 @@
-###
-### This code fails.
-###
-###
 using LinearAlgebra, Statistics
 using GalacticOptim, Optim
 using Printf, GLMakie
@@ -11,7 +7,6 @@ using ForwardDiff: derivative
 
 using JLD
 
-const nu = 0.03
 const γ = 1.4
 const NK = 4
 
@@ -19,21 +14,25 @@ show_result(filename) = begin
     time = load(filename, "time")
     mesh = load(filename, "mesh")
     data = load(filename, "data")
-    lines(mesh, data[1, :])
+    fig = Figure()
+    lines(fig[1, 1], mesh, data[1, :])
+    lines(fig[1, 2], mesh, data[3, :])
+    lines(fig[2, 1], mesh, data[5, :])
+    fig
 end
 
 
 ## A Short Explain on Data Structure
-##
-## Physical information is organized by two parts: the mesh and the data. The
-## mesh is just an vector since there is no complex structure in 1D, but usually
-## there should be two extra matrice: the first matrix records nodes of each
-## element and the second records boundary conditions. The data records
-## computational parameters on each node. Here in this program, the data is a
-## 6×#Nodes matrix with each column record computational parameters on the
-## corresponding node. The first two elements of each column of matrix data are
-## conservative variable 𝑤₁ and its spacial derivative ∂𝑤₁/∂x, the third and
-## fourth elements correspond to 𝑤₂, and the fifth and sixth to 𝑤₃
+#
+#  Physical information is organized by two parts: the mesh and the data. The
+#  mesh is just an vector since there is no complex structure in 1D, but usually
+#  there should be two extra matrice: the first matrix records nodes of each
+#  element and the second records boundary conditions. The data records
+#  computational parameters on each node. Here in this program, the data is a
+#  6×#Nodes matrix with each column record computational parameters on the
+#  corresponding node. The first two elements of each column of matrix data are
+#  conservative variable 𝑤₁ and its spacial derivative ∂𝑤₁/∂x, the third and
+#  fourth elements correspond to 𝑤₂, and the fifth and sixth to 𝑤₃
 
 train(N, dt, T) = begin
     mesh = get_mesh(N)
@@ -90,45 +89,41 @@ element_loss(nodes, data, init, dt) = begin
 
     # transform the data into local coordinate
     Δ = nodes[2] - nodes[1]
+    det = 0.5Δ
     ratio = [1.0, 0.5Δ, 1.0, 0.5Δ, 1.0, 0.5Δ]
     f = data .* ratio
     finit = init .* ratio
 
-    w1data = f[1:2, :]
-    w2data = f[3:4, :]
-    w3data = f[5:6, :]
+    w1data = @view f[1:2, :]
+    w2data = @view f[3:4, :]
+    w3data = @view f[5:6, :]
 
-    w1initdata = finit[1:2, :]
-    w2initdata = finit[3:4, :]
-    w3initdata = finit[5:6, :]
+    w1initdata = @view finit[1:2, :]
+    w2initdata = @view finit[3:4, :]
+    w3initdata = @view finit[5:6, :]
 
-    w1 = Hi * vec(w1data)
-    w1init = Hi * vec(w1initdata)
-    w2 = Hi * vec(w2data)
-    w2init = Hi * vec(w2initdata)
-    w3 = Hi * vec(w3data)
-    w3init = Hi * vec(w3initdata)
+    pdata = @. (γ - 1.0) * (w3data[1, :] - 0.5 * w2data[1, :]^2 / w1data[1, :])
 
-    wx1 = Hxi * vec(w1data)
-    wx1init = Hxi * vec(w1initdata)
-    wx2 = Hxi * vec(w2data)
-    wx2init = Hxi * vec(w2initdata)
-    wx3 = Hxi * vec(w3data)
-    wx3init = Hxi * vec(w3initdata)
+    w1     = quad_on_element(w1data, det)
+    w1init = quad_on_element(w1initdata, det)
+    w2     = quad_on_element(w2data, det)
+    w2init = quad_on_element(w2initdata, det)
+    w3     = quad_on_element(w3data, det)
+    w3init = quad_on_element(w3initdata, det)
 
-    # wxx1 = Hxxi * vec(w1data)
-    # wxx1init = Hxxi * vec(w1initdata)
-    # wxx2 = Hxxi * vec(w2data)
-    # wxx2init = Hxxi * vec(w2initdata)
-    # wxx3 = Hxxi * vec(w3data)
-    # wxx3init = Hxxi * vec(w3initdata)
+    flux1_left  = @views w2data[1, 1]
+    flux1_right = @views w2data[1, 2]
 
-    res1 = @. (w1 - w1init) * rdt + wx2
-    res2 = @. (w2 - w2init) * rdt + (0.5 * (γ - 3.0) * w2^2 / w1^2 * wx1 +
-        (3.0 - γ) * w2 / w1 * wx2 + (γ - 1.0) * wx3)
-    res3 = @. (w3 - w3init) * rdt + (-γ * w2 * w3 / w1^2 * wx1 +
-        (γ * w3 / w1 - 1.5 * (γ - 1.0) * w2^2 / w1^2) * wx2 + γ * w2 / w1 * wx3)
-    0.5Δ * (W ⋅ (res1.^2 + res2.^2 + res3.^2))
+    flux2_left  = w2data[1, 1]^2 / w1data[1, 1] + pdata[1]
+    flux2_right = w2data[1, 2]^2 / w1data[1, 2] + pdata[2]
+
+    flux3_left  = (w2data[1, 1] / w1data[1, 1]) * (w3data[1, 1] + pdata[1])
+    flux3_right = (w2data[1, 2] / w1data[1, 2]) * (w3data[1, 2] + pdata[2])
+
+    res1 = (w1 - w1init) * rdt + flux1_right - flux1_left
+    res2 = (w2 - w2init) * rdt + flux2_right - flux2_left
+    res3 = (w3 - w3init) * rdt + flux3_right - flux3_left
+    (res1.^2 + res2.^2 + res3.^2)
 end
 
 using FastGaussQuadrature, Roots
@@ -159,6 +154,20 @@ Hxx(x::Vector) = vcat(Hxx.(x)...)
 const Hi = H(P)
 const Hxi = Hx(P)
 const Hxxi = Hxx(P)
+
+value_on_gaussian_points(data) = begin
+    Hi * vec(data)
+end
+
+derivative_on_gaussian_points(data) = begin
+    Hxi * vec(data)
+end
+
+quad_on_element(data, det) = begin
+    value = value_on_gaussian_points(data)
+    det * (W ⋅ value)
+end
+
 
 function f_exact(x)
     ū * (2/(1 + exp(ū*(x-1)/nu)) - 1)
