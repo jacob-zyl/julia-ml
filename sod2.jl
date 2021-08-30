@@ -1,6 +1,7 @@
 using LinearAlgebra, Statistics
 using GalacticOptim, Optim
 using Printf, GLMakie
+using CSV, DataFrames
 
 using Zygote: dropgrad, Buffer, jacobian
 using ForwardDiff: derivative
@@ -10,14 +11,46 @@ using JLD
 const γ = 1.4
 const NK = 4
 
+const ρl = 1.0
+const pl = 1.0
+const ρr = 0.125
+const pr = 0.1
+
 show_result(filename) = begin
+    exact_data =CSV.File("exact_sod_output", delim="    ", header=0, datarow=3,
+                         select=["Column2", "Column3", "Column4", "Column5", "Column6"]) |> DataFrame
+    x        = map(t -> parse(Float64, t), exact_data.Column2)
+    density  = map(t -> parse(Float64, t), exact_data.Column3)
+    pressure = map(t -> parse(Float64, t), exact_data.Column4)
+    velocity = map(t -> parse(Float64, t), exact_data.Column5)
+    energy   = map(t -> parse(Float64, t), exact_data.Column6)
+
     time = load(filename, "time")
     mesh = load(filename, "mesh")
     data = load(filename, "data")
+    w1 = data[1, :]
+    w2 = data[3, :]
+    w3 = data[5, :]
+    ρ, u, p = get_primary_data(w1, w2, w3)
+    ϵ = @. p / ( ρ * (γ - 1.0) )
     fig = Figure()
-    lines(fig[1, 1], mesh, data[1, :])
-    lines(fig[1, 2], mesh, data[3, :])
-    lines(fig[2, 1], mesh, data[5, :])
+    ax1 = Axis(fig[1, 1])
+    ax2 = Axis(fig[1, 2])
+    ax3 = Axis(fig[2, 1])
+    ax4 = Axis(fig[2, 2])
+    scatter!(ax1, mesh, u, markersize=5, label="Numerical") # velocity
+    scatter!(ax2, mesh, ρ, markersize=5, label="Numerical") # density
+    scatter!(ax3, mesh, p, markersize=5, label="Numerical") # pressure
+    scatter!(ax4, mesh, ϵ, markersize=5, label="Numerical") # total energy
+    lines!(ax1, x, velocity, color=:red, label="Analytical")
+    lines!(ax2, x, density, color=:red, label="Analytical")
+    lines!(ax3, x, pressure, color=:red, label="Analytical")
+    lines!(ax4, x, energy, color=:red, label="Analytical")
+    ax1.ylabel="Velocity"
+    ax2.ylabel="Density"
+    ax3.ylabel="Pressure"
+    ax4.ylabel="Energy"
+    Legend(fig[:, 3], ax1)
     fig
 end
 
@@ -57,15 +90,15 @@ loss(data, fem_params) = begin
     ng = length(mesh)
     ne = ng - 1
 
-    # buf = Buffer(data)
-    # buf[:, :] = data[:, :]
-    # buf[1, 1] = dropgrad(data[1, 1])
-    # buf[1, end] = dropgrad(data[1, end])
-    # buf[3, 1] = dropgrad(data[3, 1])
-    # buf[3, end] = dropgrad(data[3, end])
-    # buf[5, 1] = dropgrad(data[5, 1])
-    # buf[5, end] = dropgrad(data[5, end])
-    # data = copy(buf)
+    buf = Buffer(data)
+    buf[:, :] = data[:, :]
+    buf[1, 1] = dropgrad(data[1, 1])
+    buf[1, end] = dropgrad(data[1, end])
+    buf[3, 1] = dropgrad(data[3, 1])
+    buf[3, end] = dropgrad(data[3, end])
+    buf[5, 1] = dropgrad(data[5, 1])
+    buf[5, end] = dropgrad(data[5, end])
+    data = copy(buf)
 
     loss = 0
     for iters in 1:ne
@@ -168,38 +201,26 @@ quad_on_element(data, det) = begin
     det * (W ⋅ value)
 end
 
-
-function f_exact(x)
-    ū * (2/(1 + exp(ū*(x-1)/nu)) - 1)
-end
-
-function fx_exact(x)
-    derivative(f_exact, x)
-end
-
-u_im(x) = (x - 1.0)/(x + 1.0) - exp(-x/nu)
-const ū = find_zero(u_im, 1)
-
 get_mesh(N) = begin
-    range(0, stop=5, length=N+1) |> collect
+    range(0.0, stop=1.0, length=N+1) |> collect
 end
 
 get_primary_data(mesh) = begin
     ρ = map(mesh) do x
-        if x < 2.5
-            return 1.0
+        if x < 0.5 * (mesh[end] - mesh[1])
+            return ρl
         else
-            return 0.125
+            return ρr
         end
     end
     u = map(mesh) do x
         return 0.0
     end
     p = map(mesh) do x
-        if x < 2.5
-            return 1.0
+        if x < 0.5 * (mesh[end] - mesh[1])
+            return pl
         else
-            return 0.1
+            return pr
         end
     end
     (ρ, u, p)
