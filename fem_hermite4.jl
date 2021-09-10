@@ -13,7 +13,7 @@ pyplot()
 push!(LOAD_PATH, pwd())
 using FEMUtils
 
-const nu = 0.05
+const nu = 0.02
 _nodes, _weights = gausslegendre(4)
 const nodes = _nodes
 const weights = _weights

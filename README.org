@@ -31,6 +31,8 @@ Something to compare:
 
 ** The Hermite FEM
 
+fem1.jl fem2.jl fem3.jl fem4.jl fem5.jl are very old test files.
+
 |-----------------+------------------------------|
 | fem_hermite.jl  | linear ODE                   |
 | fem_hermite2.jl | ~struct Element~ defined     |

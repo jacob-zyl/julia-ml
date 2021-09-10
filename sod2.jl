@@ -1,6 +1,6 @@
 using LinearAlgebra, Statistics
 using GalacticOptim, Optim
-using Printf, GLMakie
+using Printf, CairoMakie
 using CSV, DataFrames
 
 using Zygote: dropgrad, Buffer, jacobian
@@ -17,8 +17,8 @@ const ρr = 0.125
 const pr = 0.1
 
 show_result(filename) = begin
-    exact_data =CSV.File("exact_sod_output", delim="    ", header=0, datarow=3,
-                         select=["Column2", "Column3", "Column4", "Column5", "Column6"]) |> DataFrame
+    exact_data = CSV.File("exact_sod_output", delim="    ", header=0, datarow=3,
+                          select=["Column2", "Column3", "Column4", "Column5", "Column6"]) |> DataFrame
     x        = map(t -> parse(Float64, t), exact_data.Column2)
     density  = map(t -> parse(Float64, t), exact_data.Column3)
     pressure = map(t -> parse(Float64, t), exact_data.Column4)
@@ -147,11 +147,11 @@ element_loss(nodes, data, init, dt) = begin
     flux1_left  = @views w2data[1, 1]
     flux1_right = @views w2data[1, 2]
 
-    flux2_left  = w2data[1, 1]^2 / w1data[1, 1] + pdata[1]
-    flux2_right = w2data[1, 2]^2 / w1data[1, 2] + pdata[2]
+    flux2_left  = @views w2data[1, 1]^2 / w1data[1, 1] + pdata[1]
+    flux2_right = @views w2data[1, 2]^2 / w1data[1, 2] + pdata[2]
 
-    flux3_left  = (w2data[1, 1] / w1data[1, 1]) * (w3data[1, 1] + pdata[1])
-    flux3_right = (w2data[1, 2] / w1data[1, 2]) * (w3data[1, 2] + pdata[2])
+    flux3_left  = @views (w2data[1, 1] / w1data[1, 1]) * (w3data[1, 1] + pdata[1])
+    flux3_right = @views (w2data[1, 2] / w1data[1, 2]) * (w3data[1, 2] + pdata[2])
 
     res1 = (w1 - w1init) * rdt + flux1_right - flux1_left
     res2 = (w2 - w2init) * rdt + flux2_right - flux2_left
@@ -184,9 +184,11 @@ Hx(x::Vector) = vcat(Hx.(x)...)
 Hxx(x::Real) = [Hxx1(x; ξ=-1) Hxx2(x; ξ=-1) Hxx1(x; ξ=1) Hxx2(x; ξ=1)]
 Hxx(x::Vector) = vcat(Hxx.(x)...)
 
-const Hi = H(P)
+const Hi = H(P) # matrix NK × 4
 const Hxi = Hx(P)
 const Hxxi = Hxx(P)
+
+const WHi = Hi' * W
 
 value_on_gaussian_points(data) = begin
     Hi * vec(data)
@@ -197,8 +199,9 @@ derivative_on_gaussian_points(data) = begin
 end
 
 quad_on_element(data, det) = begin
-    value = value_on_gaussian_points(data)
-    det * (W ⋅ value)
+    # value = value_on_gaussian_points(data)
+    # det * (W ⋅ value)
+    det * (WHi ⋅ vec(data))  # a faster implementation
 end
 
 get_mesh(N) = begin

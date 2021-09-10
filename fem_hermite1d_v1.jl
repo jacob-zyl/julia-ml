@@ -1,13 +1,13 @@
 using LinearAlgebra, Statistics
 using GalacticOptim, Optim
-using Printf, GLMakie
+using Printf, CairoMakie
 
 using Zygote: dropgrad, Buffer, jacobian
 using ForwardDiff: derivative
 
 using JLD
 
-const nu = 0.03
+const nu = 0.05
 const NK = 4
 
 train(N, dt, T) = begin
@@ -17,6 +17,7 @@ train(N, dt, T) = begin
 
     time = 0.0
     iters = 0
+    @save "burgers"*(@sprintf "%04i" iters)*".jld" data mesh time
     while time < T
         prob = OptimizationProblem(loss_f, data, (dt, mesh, data))
         sol = solve(prob, ConjugateGradient())
@@ -24,7 +25,7 @@ train(N, dt, T) = begin
         @printf "%e\n" sol.minimum
         time += dt
         iters += 1
-        @save "v3data1d"*(@sprintf "%04i" iters)*".jld" data mesh time
+        @save "burgers"*(@sprintf "%04i" iters)*".jld" data mesh time
     end
 end
 
@@ -80,7 +81,7 @@ element_loss(nodes, data, init, dt) = begin
 
     residual = @. rdt * (u - uinit) + u * ux - nu * uxx
 
-    0.5Δ * (W ⋅ residual.^2)
+    (W ⋅ residual.^2)
 end
 
 using FastGaussQuadrature, Roots
@@ -123,6 +124,3 @@ end
 u_im(x) = (x - 1.0)/(x + 1.0) - exp(-x/nu)
 const ū = find_zero(u_im, 1)
 
-x = 0:0.1:3
-y = sin.(x)
-lines(x, y)
