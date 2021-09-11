@@ -44,7 +44,7 @@ loss(data, fem_dict) = begin
         elnode = @views nodes[:, indice]
         eldata = @views data[:, indice]
         elinit = @views data_init[:, indice]
-        sum += element_loss2(elnode, eldata, elinit)
+        sum += element_loss2(elnode, eldata, elinit, dt)
     end
     sum
 end
@@ -80,12 +80,12 @@ element_loss2(nodes, data, init) = begin
     finityy2 = dot(finit, Hyyi2) * 4 * Δy^-2
     finityy3 = dot(finit, Hyyi3) * 4 * Δy^-2
     finityy4 = dot(finit, Hyyi4) * 4 * Δy^-2
-    α = 1.0
+    α = 0.5
     r1 = (α * (fxx1 + fyy1) + (1.0 - α) * (finitxx1 + finityy1) + 10.0 * (finit1 - f1))^2
     r2 = (α * (fxx2 + fyy2) + (1.0 - α) * (finitxx2 + finityy2) + 10.0 * (finit2 - f2))^2
     r3 = (α * (fxx3 + fyy3) + (1.0 - α) * (finitxx3 + finityy3) + 10.0 * (finit3 - f3))^2
     r4 = (α * (fxx4 + fyy4) + (1.0 - α) * (finitxx4 + finityy4) + 10.0 * (finit4 - f4))^2
-    +(r1, r2, r3, r4) * Δx * Δy * 0.25
+    +(r1, r2, r3, r4)
 end
 
 f_exact(x, y) = sinpi(x) * sinh(pi * y) / sinh(pi)

@@ -17,8 +17,9 @@ const ρr = 0.125
 const pr = 0.1
 
 show_result(filename) = begin
-    exact_data = CSV.File("exact_sod_output", delim="    ", header=0, datarow=3,
-                          select=["Column2", "Column3", "Column4", "Column5", "Column6"]) |> DataFrame
+    exact_data = CSV.File(
+        "exact_sod_output", delim="    ", header=0, datarow=3,
+        select=["Column2", "Column3", "Column4", "Column5", "Column6"]) |> DataFrame
     x        = map(t -> parse(Float64, t), exact_data.Column2)
     density  = map(t -> parse(Float64, t), exact_data.Column3)
     pressure = map(t -> parse(Float64, t), exact_data.Column4)
