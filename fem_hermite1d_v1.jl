@@ -103,10 +103,10 @@ Hxx1(x; ξ) = derivative(p -> Hx1(p; ξ=ξ), x)
 Hxx2(x; ξ) = derivative(p -> Hx2(p; ξ=ξ), x)
 
 H(x::Real) = [H1(x; ξ=-1) H2(x; ξ=-1) H1(x; ξ=1) H2(x; ξ=1)]
-H(x::Vector) = vcat(H.(x)...)
 Hx(x::Real) = [Hx1(x; ξ=-1) Hx2(x; ξ=-1) Hx1(x; ξ=1) Hx2(x; ξ=1)]
-Hx(x::Vector) = vcat(Hx.(x)...)
 Hxx(x::Real) = [Hxx1(x; ξ=-1) Hxx2(x; ξ=-1) Hxx1(x; ξ=1) Hxx2(x; ξ=1)]
+H(x::Vector) = vcat(H.(x)...)
+Hx(x::Vector) = vcat(Hx.(x)...)
 Hxx(x::Vector) = vcat(Hxx.(x)...)
 
 const Hi = H(P)
