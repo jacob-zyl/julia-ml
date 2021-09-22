@@ -1,15 +1,16 @@
 using LinearAlgebra, Statistics
 using GalacticOptim, Optim
 using Printf
-using Plots
+using CairoMakie
 using Zygote: dropgrad, ignore, Buffer, jacobian, hessian
 using ForwardDiff: derivative
 using JLD
 
 const NK = 4
 
-gen(ng=10) = begin
+gen() = begin
     # fem_dict = load("prob.jld")
+    ng = 7
     nn = (ng + 1)^2
     ne = ng^2
 
@@ -18,12 +19,13 @@ gen(ng=10) = begin
     side = ng^-1 * (0:ng) |> collect
     nodes = hcat(map(x->hcat(vcat.(side', x)...), side)...)
     data = zeros(4, nn)
+    data[1, :] = ones(nn)
 
     data[1, upper_wall] = nodes[1, upper_wall] .|> sinpi
     # data[3, upper_wall] = (nodes[1, upper_wall] .|> sinpi) .* (pi / tanh(pi))
-    # data[1, lower_wall] = nodes[1, lower_wall] .|> sinpi
-    # data[1, left_wall] = -nodes[2, left_wall] .|> sinpi
-    # data[1, right_wall] = 1 .- nodes[2, right_wall] .|> sinpi
+    data[1, lower_wall] = nodes[1, lower_wall] .|> zero
+    data[1, left_wall] = -nodes[2, left_wall] .|> zero
+    data[1, right_wall] = 1 .- nodes[2, right_wall] .|> zero
 
     elnodes = hcat(map(p -> e2nvec(p, ng), 1:ne)...)
 
@@ -32,21 +34,21 @@ gen(ng=10) = begin
 end
 
 train() = begin
-    for i in [10]
-        gen(i)
-        mesh = load("mesh.jld")
-        data = load("data.jld", "data")
-        opt_f = OptimizationFunction(loss, GalacticOptim.AutoZygote())
+    mesh = load("mesh.jld")
+    data = load("data.jld", "data")
+    opt_f = OptimizationFunction(loss, GalacticOptim.AutoZygote())
 
-        prob = OptimizationProblem(opt_f, data, mesh)
+    dt = 0.01
+    for iteration in 1:50
+        prob = OptimizationProblem(opt_f, data, (dt, mesh, data))
         sol = solve(prob, ConjugateGradient())
         data = sol.minimizer
-        @save "heat-result"*(@sprintf "%02i" i)*".jld" data mesh
+        @save "data"*(@sprintf "%04i" iteration)*".jld" data
     end
 end
 
 loss(data, fem_dict) = begin
-    mesh = fem_dict
+    dt, mesh, data_init = fem_dict
     ng = mesh["ng"]
     ne = mesh["ne"]
     nodes = mesh["nodes"]
@@ -66,25 +68,31 @@ loss(data, fem_dict) = begin
         indice = elnodes[:, iters]
         elnode = @views nodes[:, indice]
         eldata = @views data[:, indice]
-        sum += element_loss(elnode, eldata)
+        elinit = @views data_init[:, indice]
+        sum += element_loss(elnode, eldata, elinit, dt)
     end
     sum
 end
 
-element_loss(nodes, data) = begin
+element_loss(nodes, data, init, dt) = begin
     Δx = nodes[1, 2] - nodes[1, 1]
     Δy = nodes[2, 4] - nodes[2, 1]
     ratio = Float64[1, 0.5Δx, 0.5Δy, 0.25Δx*Δy]
     f = data .* ratio
+    finit = init .* ratio
 
     u = Hi * vec(f)
+    uinit = Hi * vec(finit)
 
     # coefficients below are from element governing equation
     uxx = Hxxi * vec(f) * 4 * Δx^-2
+    uinitxx = Hxxi * vec(finit) * 4 * Δx^-2
 
     uyy = Hyyi * vec(f) * 4 * Δy^-2
+    uinityy = Hyyi * vec(finit) * 4 * Δy^-2
 
-    r = @. (uxx + uyy)^2
+    α = 0.5
+    r = @. (α * (uxx + uyy) + (1.0 - α) * (uinitxx + uinityy) + (uinit - u) / dt)^2
 
     weights ⋅ r
     
@@ -96,42 +104,36 @@ fy_exact(x, y) = sinpi(x) * cosh(pi * y) * pi / sinh(pi)
 fxy_exact(x, y) = cospi(x) * cosh(pi * y) * pi^2 / sinh(pi)
 f_test(x) = [f_exact(x[1], x[2]), fx_exact(x[1], x[2]), fy_exact(x[1], x[2]), fxy_exact(x[1], x[2])]
 
-error(u, mesh) = begin
+error(sol, mesh) = begin
     nodes = mesh["nodes"]
+    u = sol.minimizer
     v = hcat(([nodes[:, i] for i in 1:size(nodes, 2)] .|> f_test)...)
-    sqrt.((sum(abs2, u - v, dims=2))) / size(nodes, 2)
+    sqrt.((mean(abs2, u - v, dims=2)))
 end
 
-error(result) = begin
-    error(result["data"], result["mesh"])
+error(result::Tuple) = begin
+    error(result[1], result[3])
 end
 
 
-show_map(sol) = begin
+show_map(data, mesh) = begin
+    ng = sqrt(length(size(data, 2))) - 1 |> Integer
+    xs = 0:0.005:1
+    ys = 0:0.005:1
+    fig = Figure()
+    ax = Axis(fig[1, 1], aspect=DataAspect())
+    heatmap!(ax, xs, ys, interpolate(data, mesh), colormap=:bwr)
+    fig
+end
+
+show_map_bak(sol, nodes) = begin
     u = sol.minimizer[1, :]
-    show_map(u)
-end
-
-show_map(u::Array) = begin
-    theme(:vibrant)
-    ng = sqrt(length(u)) - 1 |> Integer
-    umap = reshape(u, ng+1, ng+1)
-    xs = ng^-1 * (0:ng)
-    ys = ng^-1 * (0:ng)
-    heatmap(
-        xs, ys, umap', aspect_ratio=1, show=true, #clim=(0, 1)
-    )
-end
-
-
-show_map(u, nodes) = begin
-    theme(:vibrant)
     v = hcat(([nodes[:, i] for i in 1:size(nodes, 2)] .|> f_test)...)
     ng = sqrt(length(u)) - 1 |> Integer
     error_map = map(1:ng^2) do x
         element_loss(x, ng, sol.minimizer, nodes) |> sqrt
     end
-    p1 = show_map(u)
+    p1 = show_map(sol)
     p2 = heatmap(log10.(reshape(error_map, ng, ng))', aspect_ratio=1)
     plot(p1, p2)
 end
@@ -147,7 +149,7 @@ end
 # correctness of code blow verified.
 
 using FastGaussQuadrature
-P, W = gausslegendre(NK)
+const P, W = gausslegendre(NK)
 
 const points = tuple.(P', P)
 const weights = kron(W, W)
@@ -203,4 +205,29 @@ e2nvec(ne, ng) = begin
     n4 = n2 + ng
     n3 = n4 + 1
     [n1, n2, n3, n4]
+end
+
+interpolate(data, mesh) = begin
+    f(x, y) = begin
+        ne = mesh["ne"]
+        ine = 0
+        for i in 1:ne
+            indice = mesh["elnodes"][:, i]
+            if (
+                    mesh["nodes"][1, indice[1]] <= x && 
+                    mesh["nodes"][1, indice[2]] >= x && 
+                    mesh["nodes"][2, indice[1]] <= y &&
+                    mesh["nodes"][2, indice[3]] >= y
+                    )
+                ine = i
+            end
+        end
+        nodes = mesh["nodes"][:, mesh["elnodes"][:, ine]]
+        Δx = nodes[1, 2] - nodes[1, 1]
+        Δy = nodes[2, 4] - nodes[2, 1]
+        ratio = Float64[1, 0.5Δx, 0.5Δy, 0.25Δx*Δy]
+        ξ = (x - 0.5*(nodes[1, 2] + nodes[1, 1])) * 2 / Δx
+        η = (y - 0.5*(nodes[2, 4] + nodes[2, 1])) * 2 / Δy
+        H([ξ, η]) ⋅ (data[:, mesh["elnodes"][:, ine]] .* ratio)
+    end
 end
