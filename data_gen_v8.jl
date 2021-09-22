@@ -17,6 +17,7 @@ gen() = begin
     upper_wall, lower_wall, left_wall, right_wall = walls(ng)
 
     side = ng^-1 * (0:ng) |> collect
+    side = @. 0.5 - 0.5cos(pi*side)
     nodes = hcat(map(x->hcat(vcat.(side', x)...), side)...)
     data = zeros(4, nn)
 

@@ -10,7 +10,7 @@ using JLD
 const nu = 0.05
 const NK = 4
 
-train(N, dt, T) = begin
+train(N::Integer, dt, T) = begin
     mesh = get_mesh(N)
     data = get_data(N)
     loss_f = OptimizationFunction(loss, GalacticOptim.AutoZygote())
@@ -28,6 +28,26 @@ train(N, dt, T) = begin
         @save "burgers"*(@sprintf "%04i" iters)*".jld" data mesh time
     end
 end
+
+train(filename::String, dt, T) = begin
+    mesh = load(filename, "mesh")
+    data = load(filename, "data")
+    time = load(filename, "time")
+    loss_f = OptimizationFunction(loss, GalacticOptim.AutoZygote())
+
+    iters = 0
+    @save "burgers"*(@sprintf "%04i" iters)*".jld" data mesh time
+    while time < T
+        prob = OptimizationProblem(loss_f, data, (dt, mesh, data))
+        sol = solve(prob, ConjugateGradient())
+        data = sol.minimizer
+        @printf "%e\n" sol.minimum
+        time += dt
+        iters += 1
+        @save "burgers"*(@sprintf "%04i" iters)*".jld" data mesh time
+    end
+end
+
 
 get_mesh(N) = begin
     sinpi.((0:N) ./ 2N) |> collect
@@ -124,3 +144,31 @@ end
 u_im(x) = (x - 1.0)/(x + 1.0) - exp(-x/nu)
 const ū = find_zero(u_im, 1)
 
+show_data(filename) = begin
+    data = load(filename, "data")
+    mesh = load(filename, "mesh")
+    time = load(filename, "time")
+
+    xs = 0.0:0.01:1.0
+    fig = Figure()
+    ax = Axis(fig[1, 1])
+    lines!(ax, xs, f_exact.(xs),
+           color=:black, label="steady state")
+    scatterlines!(ax, mesh, data[1, :],
+           color=:red, markercolor=:red, linestyle=:dash,
+           label="t ="*(@sprintf "%.4f" time))
+    axislegend(position=:lb)
+    fig
+end
+
+show_data_add(f, filename; shape) = begin
+    data = load(filename, "data")
+    mesh = load(filename, "mesh")
+    time = load(filename, "time")
+
+    scatterlines!(f[1, 1], mesh, data[1, :],
+           marker=shape, color=:red, markercolor=:red, linestyle=:dash,
+           label="t ="*(@sprintf "%.4f" time))
+    axislegend(position=:lb)
+    f
+end

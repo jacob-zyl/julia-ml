@@ -107,11 +107,11 @@ element_loss(nodes, data, init, dt) = begin
     ωyy     = Hyyi * vec(ωdata)     * 4 * Δy^-2
     initωyy = Hyyi * vec(initωdata) * 4 * Δy^-2
 
-    ϕxx     = Hxxi * vec(ϕdata)     * 4 * Δx^-2
-    initϕxx = Hxxi * vec(initϕdata) * 4 * Δx^-2
+    ψxx     = Hxxi * vec(ψdata)     * 4 * Δx^-2
+    initψxx = Hxxi * vec(initψdata) * 4 * Δx^-2
 
-    ϕyy     = Hyyi * vec(ϕdata)     * 4 * Δy^-2
-    initϕyy = Hyyi * vec(initϕdata) * 4 * Δy^-2
+    ψyy     = Hyyi * vec(ψdata)     * 4 * Δy^-2
+    initψyy = Hyyi * vec(initψdata) * 4 * Δy^-2
 
     ωx      = Hxi * vec(ωdata)      * 2 * Δx^-1
     initωx  = Hxi * vec(initωdata)  * 2 * Δx^-1
@@ -119,11 +119,11 @@ element_loss(nodes, data, init, dt) = begin
     ωy      = Hyi * vec(ωdata)      * 2 * Δy^-1
     initωy  = Hyi * vec(initωdata)  * 2 * Δy^-1
 
-    ϕx      = Hxi * vec(ϕdata)      * 2 * Δx^-1
-    initϕx  = Hxi * vec(initϕdata)  * 2 * Δx^-1
+    ψx      = Hxi * vec(ψdata)      * 2 * Δx^-1
+    initψx  = Hxi * vec(initψdata)  * 2 * Δx^-1
 
-    ϕy      = Hyi * vec(ϕdata)      * 2 * Δy^-1
-    initϕy  = Hyi * vec(initϕdata)  * 2 * Δy^-1
+    ψy      = Hyi * vec(ψdata)      * 2 * Δy^-1
+    initψy  = Hyi * vec(initψdata)  * 2 * Δy^-1
 
     residual1 = @. ω + (ψxx + ψyy)
     residual2 = @. (ω - initω) / dt + 0.5 * (
@@ -211,9 +211,23 @@ Hyy(p) = [H1(p[1])*Hxx1(p[2]), H2(p[1])*Hxx1(p[2]), H1(p[1])*Hxx2(p[2]), H2(p[1]
           H3(p[1])*Hxx3(p[2]), H4(p[1])*Hxx3(p[2]), H3(p[1])*Hxx4(p[2]), H4(p[1])*Hxx4(p[2]),
           H1(p[1])*Hxx3(p[2]), H2(p[1])*Hxx3(p[2]), H1(p[1])*Hxx4(p[2]), H2(p[1])*Hxx4(p[2])]'
 
+Hx(p) = [Hx1(p[1])*H1(p[2]), Hx2(p[1])*H1(p[2]), Hx1(p[1])*H2(p[2]), Hx2(p[1])*H2(p[2]),
+          Hx3(p[1])*H1(p[2]), Hx4(p[1])*H1(p[2]), Hx3(p[1])*H2(p[2]), Hx4(p[1])*H2(p[2]),
+          Hx3(p[1])*H3(p[2]), Hx4(p[1])*H3(p[2]), Hx3(p[1])*H4(p[2]), Hx4(p[1])*H4(p[2]),
+          Hx1(p[1])*H3(p[2]), Hx2(p[1])*H3(p[2]), Hx1(p[1])*H4(p[2]), Hx2(p[1])*H4(p[2])]'
+
+Hy(p) = [H1(p[1])*Hx1(p[2]), H2(p[1])*Hx1(p[2]), H1(p[1])*Hx2(p[2]), H2(p[1])*Hx2(p[2]),
+          H3(p[1])*Hx1(p[2]), H4(p[1])*Hx1(p[2]), H3(p[1])*Hx2(p[2]), H4(p[1])*Hx2(p[2]),
+          H3(p[1])*Hx3(p[2]), H4(p[1])*Hx3(p[2]), H3(p[1])*Hx4(p[2]), H4(p[1])*Hx4(p[2]),
+          H1(p[1])*Hx3(p[2]), H2(p[1])*Hx3(p[2]), H1(p[1])*Hx4(p[2]), H2(p[1])*Hx4(p[2])]'
+
 const Hi = vcat(H.(points)...)
 const Hxxi = vcat(Hxx.(points)...)
 const Hyyi = vcat(Hyy.(points)...)
+const Hxi = vcat(Hx.(points)...)
+const Hyi = vcat(Hy.(points)...)
+
+const nu = 0.01
 
 e2n(ne, ng) = begin
     quotient = div(ne - 1, ng)
