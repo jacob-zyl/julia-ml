@@ -8,9 +8,8 @@ using JLD
 
 const NK = 4
 
-gen() = begin
+gen(ng = 7) = begin
     # fem_dict = load("prob.jld")
-    ng = 7
     nn = (ng + 1)^2
     ne = ng^2
 
@@ -33,7 +32,8 @@ gen() = begin
     @save "data.jld" data
 end
 
-train() = begin
+train(ng) = begin
+    gen(ng)
     mesh = load("mesh.jld")
     data = load("data.jld", "data")
     opt_f = OptimizationFunction(loss, GalacticOptim.AutoZygote())

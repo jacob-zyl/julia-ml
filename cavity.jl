@@ -33,7 +33,8 @@ gen() = begin
     @save "data.jld" data
 end
 
-train() = begin
+train(ng) = begin
+    gen(ng)
     mesh = load("mesh.jld")
     data = load("data.jld", "data")
     opt_f = OptimizationFunction(loss, GalacticOptim.AutoZygote())
