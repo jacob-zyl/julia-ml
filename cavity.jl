@@ -20,7 +20,8 @@ gen(ng=10) = begin
     nodes = hcat(map(x->hcat(vcat.(side', x)...), side)...)
     data = zeros(8, nn)
 
-    data[3, upper_wall] = nodes[1, upper_wall] .|> (x -> 16x^2*(1-x)^2)
+    data[3, upper_wall] .= 1.0
+    # data[3, upper_wall] = nodes[1, upper_wall] .|> (x -> 16x^2*(1-x)^2)
     # data[3, upper_wall] = (nodes[1, upper_wall] .|> sinpi) .* (pi / tanh(pi))
     # data[1, lower_wall] = nodes[1, lower_wall] .|> sinpi
     # data[1, left_wall] = -nodes[2, left_wall] .|> sinpi
@@ -32,38 +33,38 @@ gen(ng=10) = begin
     @save "driven_cavity/data.jld" data
 end
 
-train(ng=10) = begin
+train(data_init, mesh_init, time_init, dt; task="result") = begin
+    data = data_init
+    mesh = mesh_init
+    time = time_init
+    
+    opt_f = OptimizationFunction(loss, GalacticOptim.AutoZygote())
+    
+    for iteration in 1:2
+        prob = OptimizationProblem(opt_f, data, (dt, mesh, data))
+        sol = solve(prob, ConjugateGradient())
+        @printf "%f\n" sol.minimum
+        data = sol.minimizer
+        time += dt
+        @save "driven_cavity/"*task*"_"*(@sprintf "%04i" iteration)*".jld" data mesh time
+    end
+end
+
+train(;ng=10, task="result") = begin
     gen(ng)
     mesh = load("driven_cavity/mesh.jld")
     data = load("driven_cavity/data.jld", "data")
-    opt_f = OptimizationFunction(loss, GalacticOptim.AutoZygote())
-
     dt = 0.1
     time = 0.0
-    for iteration in 1:100
-        prob = OptimizationProblem(opt_f, data, (dt, mesh, data))
-        sol = solve(prob, ConjugateGradient())
-        @printf "%f\n" sol.minimum
-        data = sol.minimizer
-        time += dt
-        @save "driven_cavity/data"*(@sprintf "%04i" iteration)*".jld" data mesh time
-    end
+    train(data, mesh, time, dt; task = task)
 end
-train(jldfile) = begin
-    mesh = load("driven_cavity/mesh.jld")
+
+train(jldfile; task="new") = begin
+    mesh = load(jldfile, "mesh")
     data = load(jldfile, "data")
     time = load(jldfile, "time")
-    opt_f = OptimizationFunction(loss, GalacticOptim.AutoZygote())
-
     dt = 1.0
-        for iteration in 1:100
-        prob = OptimizationProblem(opt_f, data, (dt, mesh, data))
-        sol = solve(prob, ConjugateGradient())
-        @printf "%f\n" sol.minimum
-        data = sol.minimizer
-        time += dt
-        @save "driven_cavity/newdata"*(@sprintf "%04i" iteration)*".jld" data mesh time
-    end
+    train(data, mesh, time, dt; task = task)
 end
 
 loss(data, fem_dict) = begin
