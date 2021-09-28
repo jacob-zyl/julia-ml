@@ -42,10 +42,10 @@ train(ng = 7) = begin
     opt_f = OptimizationFunction(loss, GalacticOptim.AutoZygote())
 
     prob = OptimizationProblem(opt_f, data, mesh)
-    sol = solve(prob, ConjugateGradient())
-    # sol = solve(prob, BFGS())
+    # sol = solve(prob, ConjugateGradient())
+    sol = solve(prob, BFGS())
     data = sol.minimizer
-    @save "heat2d-steady/result"*".jld" data
+    @save "heat2d-steady/result"*".jld" data mesh
 end
 
 loss(data, mesh) = begin
@@ -113,6 +113,7 @@ fy_exact(x, y) = sinpi(x) * cosh(pi * y) * pi / sinh(pi)
 fxy_exact(x, y) = cospi(x) * cosh(pi * y) * pi^2 / sinh(pi)
 f_test(x) = [f_exact(x[1], x[2]), fx_exact(x[1], x[2]), fy_exact(x[1], x[2]), fxy_exact(x[1], x[2])]
 
+error(result) = error(load(result, "data"), load(result, "mesh"))
 error(data, mesh) = begin
     integrand(x, p) = (interpolate(data, mesh)(x[1], x[2]) - f_exact(x[1], x[2]))^2
     prob = QuadratureProblem(integrand, zeros(2), ones(2))
@@ -120,7 +121,7 @@ error(data, mesh) = begin
     sol.u |> sqrt
 end
 
-
+show_map(result) = show_map(load(result, "data"), load(result, "mesh"))
 show_map(data, mesh) = begin
     ng = sqrt(length(size(data, 2))) - 1 |> Integer
     xs = 0:0.005:1
