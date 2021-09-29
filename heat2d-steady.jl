@@ -45,7 +45,7 @@ train(ng = 7) = begin
     # sol = solve(prob, ConjugateGradient())
     sol = solve(prob, BFGS())
     data = sol.minimizer
-    @save "heat2d-steady/result"*".jld" data mesh
+    @save "heat2d-steady/result_"*(@sprintf "%03i" ng)*".jld" data mesh
 end
 
 loss(data, mesh) = begin
