@@ -7,7 +7,6 @@ using ForwardDiff: derivative
 using JLD
 
 const NK = 4
-const nu = 0.01
 
 gen(ng=10) = begin
     # fem_dict = load("prob.jld")
@@ -33,7 +32,7 @@ gen(ng=10) = begin
     @save "driven_cavity/data.jld" data
 end
 
-train(data_init, mesh_init, time_init, dt; task="result") = begin
+train(data_init, mesh_init, time_init, dt; task="re100_result", nu = 0.01) = begin
     data = data_init
     mesh = mesh_init
     time = time_init
@@ -41,7 +40,7 @@ train(data_init, mesh_init, time_init, dt; task="result") = begin
     opt_f = OptimizationFunction(loss, GalacticOptim.AutoZygote())
     
     for iteration in 1:2
-        prob = OptimizationProblem(opt_f, data, (dt, mesh, data))
+        prob = OptimizationProblem(opt_f, data, (nu, dt, mesh, data))
         sol = solve(prob, ConjugateGradient())
         @printf "%f\n" sol.minimum
         data = sol.minimizer
@@ -50,25 +49,25 @@ train(data_init, mesh_init, time_init, dt; task="result") = begin
     end
 end
 
-train(;ng=10, task="result") = begin
+train(;ng=10, task="re100_result", nu = 0.01) = begin
     gen(ng)
     mesh = load("driven_cavity/mesh.jld")
     data = load("driven_cavity/data.jld", "data")
     dt = 0.1
     time = 0.0
-    train(data, mesh, time, dt; task = task)
+    train(data, mesh, time, dt; task = task, nu = nu)
 end
 
-train(jldfile; task="new") = begin
+train(jldfile; task="re100_new", nu = 0.01) = begin
     mesh = load(jldfile, "mesh")
     data = load(jldfile, "data")
     time = load(jldfile, "time")
     dt = 1.0
-    train(data, mesh, time, dt; task = task)
+    train(data, mesh, time, dt; task = task, nu = nu)
 end
 
 loss(data, fem_dict) = begin
-    dt, mesh, data_init = fem_dict
+    nu, dt, mesh, data_init = fem_dict
     ng = mesh["ng"]
     ne = mesh["ne"]
     nodes = mesh["nodes"]
@@ -97,12 +96,12 @@ loss(data, fem_dict) = begin
         elnode = @views nodes[:, indice]
         eldata = @views data[:, indice]
         elinit = @views data_init[:, indice]
-        sum += element_loss(elnode, eldata, elinit, dt)
+        sum += element_loss(elnode, eldata, elinit, nu, dt)
     end
     sum
 end
 
-element_loss(nodes, data, init, dt) = begin
+element_loss(nodes, data, init, nu, dt) = begin
     Δx = nodes[1, 2] - nodes[1, 1]
     Δy = nodes[2, 4] - nodes[2, 1]
     ratio = Float64[1, 0.5Δx, 0.5Δy, 0.25Δx*Δy]

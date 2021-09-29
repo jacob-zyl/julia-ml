@@ -1,13 +1,10 @@
 using LinearAlgebra, Statistics
-using GalacticOptim, Optim
+using GalacticOptim, Optim, Flux
 using Printf
 using CairoMakie
 using Zygote: dropgrad, ignore, Buffer, jacobian, hessian
 using ForwardDiff: derivative
 using JLD
-
-const NK = 4
-const nu = 0.01
 
 gen(ng=10) = begin
     # fem_dict = load("prob.jld")
@@ -20,8 +17,8 @@ gen(ng=10) = begin
     nodes = hcat(map(x->hcat(vcat.(side', x)...), side)...)
     data = zeros(8, nn)
 
-    data[3, upper_wall] .= 1.0
-    # data[3, upper_wall] = nodes[1, upper_wall] .|> (x -> 16x^2*(1-x)^2)
+    # data[3, upper_wall] .= 1.0; data[3, 1] = 0.0; data[3, end] = 0.0
+    data[3, upper_wall] = nodes[1, upper_wall] .|> (x -> 16x^2*(1-x)^2)
     # data[3, upper_wall] = (nodes[1, upper_wall] .|> sinpi) .* (pi / tanh(pi))
     # data[1, lower_wall] = nodes[1, lower_wall] .|> sinpi
     # data[1, left_wall] = -nodes[2, left_wall] .|> sinpi
@@ -33,42 +30,32 @@ gen(ng=10) = begin
     @save "driven_cavity/data.jld" data
 end
 
-train(data_init, mesh_init, time_init, dt; task="result") = begin
-    data = data_init
-    mesh = mesh_init
-    time = time_init
-    
+train(data_init, mesh_init; task="re100_result", nu = 0.01, algo=BFGS()) = begin
+    data  = data_init
+    mesh  = mesh_init
     opt_f = OptimizationFunction(loss, GalacticOptim.AutoZygote())
-    
-    for iteration in 1:2
-        prob = OptimizationProblem(opt_f, data, (dt, mesh, data))
-        sol = solve(prob, ConjugateGradient())
-        @printf "%f\n" sol.minimum
-        data = sol.minimizer
-        time += dt
-        @save "driven_cavity/"*task*"_"*(@sprintf "%04i" iteration)*".jld" data mesh time
-    end
+    prob = OptimizationProblem(opt_f, data, (nu, mesh))
+    sol = solve(prob, algo, maxiters=1000)
+    data = sol.minimizer
+    @printf "%f\n" sol.minimum
+    @save "driven_cavity/"*task*".jld" data mesh
 end
 
-train(;ng=10, task="result") = begin
+train(;ng=10, task="re100_result", nu = 0.01, algo=BFGS()) = begin
     gen(ng)
     mesh = load("driven_cavity/mesh.jld")
     data = load("driven_cavity/data.jld", "data")
-    dt = 0.1
-    time = 0.0
-    train(data, mesh, time, dt; task = task)
+    train(data, mesh; task = task, nu = nu, algo=algo)
 end
 
-train(jldfile; task="new") = begin
+train(jldfile; task="re100_new", nu = 0.01, algo=BFGS()) = begin
     mesh = load(jldfile, "mesh")
     data = load(jldfile, "data")
-    time = load(jldfile, "time")
-    dt = 1.0
-    train(data, mesh, time, dt; task = task)
+    train(data, mesh; task = task, nu = nu, algo = algo)
 end
 
 loss(data, fem_dict) = begin
-    dt, mesh, data_init = fem_dict
+    nu, mesh = fem_dict
     ng = mesh["ng"]
     ne = mesh["ne"]
     nodes = mesh["nodes"]
@@ -96,59 +83,33 @@ loss(data, fem_dict) = begin
         indice = elnodes[:, iters]
         elnode = @views nodes[:, indice]
         eldata = @views data[:, indice]
-        elinit = @views data_init[:, indice]
-        sum += element_loss(elnode, eldata, elinit, dt)
+        sum += element_loss(elnode, eldata, nu)
     end
     sum
 end
 
-element_loss(nodes, data, init, dt) = begin
+element_loss(nodes, data, nu) = begin
     Δx = nodes[1, 2] - nodes[1, 1]
     Δy = nodes[2, 4] - nodes[2, 1]
     ratio = Float64[1, 0.5Δx, 0.5Δy, 0.25Δx*Δy]
 
     ψdata     = @views data[1:4, :] .* ratio
     ωdata     = @views data[5:8, :] .* ratio
-    initψdata = @views init[1:4, :] .* ratio
-    initωdata = @views init[5:8, :] .* ratio
 
-    ψ = Hi * vec(ψdata)
-    ω = Hi * vec(ωdata)
-
-    initψ = Hi * vec(initψdata)
-    initω = Hi * vec(initωdata)
+    ω = @views Hi * vec(ωdata)
 
     # coefficients below are from element governing equation
-    ωxx     = Hxxi * vec(ωdata)     * 4 * Δx^-2
-    initωxx = Hxxi * vec(initωdata) * 4 * Δx^-2
-
-    ωyy     = Hyyi * vec(ωdata)     * 4 * Δy^-2
-    initωyy = Hyyi * vec(initωdata) * 4 * Δy^-2
-
-    ψxx     = Hxxi * vec(ψdata)     * 4 * Δx^-2
-    initψxx = Hxxi * vec(initψdata) * 4 * Δx^-2
-
-    ψyy     = Hyyi * vec(ψdata)     * 4 * Δy^-2
-    initψyy = Hyyi * vec(initψdata) * 4 * Δy^-2
-
-    ωx      = Hxi * vec(ωdata)      * 2 * Δx^-1
-    initωx  = Hxi * vec(initωdata)  * 2 * Δx^-1
-
-    ωy      = Hyi * vec(ωdata)      * 2 * Δy^-1
-    initωy  = Hyi * vec(initωdata)  * 2 * Δy^-1
-
-    ψx      = Hxi * vec(ψdata)      * 2 * Δx^-1
-    initψx  = Hxi * vec(initψdata)  * 2 * Δx^-1
-
-    ψy      = Hyi * vec(ψdata)      * 2 * Δy^-1
-    initψy  = Hyi * vec(initψdata)  * 2 * Δy^-1
+    ωxx     = @views Hxxi * vec(ωdata)     * 4.0 * Δx^-2
+    ωyy     = @views Hyyi * vec(ωdata)     * 4.0 * Δy^-2
+    ψxx     = @views Hxxi * vec(ψdata)     * 4.0 * Δx^-2
+    ψyy     = @views Hyyi * vec(ψdata)     * 4.0 * Δy^-2
+    ωx      = @views Hxi  * vec(ωdata)     * 2.0 * Δx^-1
+    ωy      = @views Hyi  * vec(ωdata)     * 2.0 * Δy^-1
+    ψx      = @views Hxi  * vec(ψdata)     * 2.0 * Δx^-1
+    ψy      = @views Hyi  * vec(ψdata)     * 2.0 * Δy^-1
 
     residual1 = @. (ω + (ψxx + ψyy))^2
-    residual2 = @. ((ω - initω) / dt + 0.5 * (
-        ψy * ωx - ψx * ωy - nu * (ωxx + ωyy)
-    ) + 0.5 * (
-        initψy * initωx - initψx * initωy - nu * (initωxx + initωyy)
-    ))^2
+    residual2 = @. (ψy * ωx - ψx * ωy - nu * (ωxx + ωyy))^2
 
     weights ⋅ (residual1 + residual2)
 end
@@ -164,6 +125,7 @@ end
 
 # correctness of code blow verified.
 
+const NK = 4
 using FastGaussQuadrature
 const P, W = gausslegendre(NK)
 
@@ -235,16 +197,21 @@ e2nvec(ne, ng) = begin
     [n1, n2, n3, n4]
 end
 
-show_map(data, mesh; levels=10) = begin
+show_map(data, mesh; levels=10, map=true, tour=true) = begin
     ng = sqrt(length(size(data, 2))) - 1 |> Integer
-    xs = 0:0.001:1
-    ys = 0:0.001:1
+    xs = 0:0.005:1
+    ys = 0:0.005:1
     fig = Figure()
     ax = Axis(fig[1, 1], aspect=DataAspect())
-    hm = heatmap!(ax, xs, ys, interpolate(data, mesh), colormap=:bwr)
-    ct = contour!(ax, xs, ys, [interpolate(data, mesh)(x, y) for x in xs, y in ys],
-                overdraw=true, levels=levels)
-    Colorbar(fig[1, 2], hm)
+    if map
+        hm = heatmap!(ax, xs, ys, interpolate(data, mesh), colormap=:bwr)
+        Colorbar(fig[1, 2], hm)
+    end
+    if tour
+        ct = contour!(ax, xs, ys,
+                      [interpolate(data, mesh)(x, y) for x in xs, y in ys],
+                      overdraw=true, levels=levels)
+    end
     #Colorbar(fig[1, 3], ct)
     fig
 end
