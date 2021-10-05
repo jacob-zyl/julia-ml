@@ -77,12 +77,12 @@ train(N, dt, T) = begin
     iters = 0
     while time < T
         prob = OptimizationProblem(loss_f, data, (dt, mesh, data))
-        sol = solve(prob, BFGS())
+        sol = solve(prob, ConjugateGradient())
         data = sol.minimizer
         @printf "%e\n" sol.minimum
         time += dt
         iters += 1
-        @save "sod"*(@sprintf "%04i" iters)*".jld" data mesh time
+        @save "sod/viscous_"*(@sprintf "%02i_" N)*(@sprintf "%04i" iters)*".jld" data mesh time
     end
 end
 
@@ -112,7 +112,7 @@ loss(data, fem_params) = begin
     loss
 end
 
-element_loss(nodes, data, init, dt) = begin
+element_loss2(nodes, data, init, dt) = begin
     ν = 0.01
 
     # data = [𝑤₁; 𝑤₂; 𝑤₃]
@@ -154,6 +154,54 @@ element_loss(nodes, data, init, dt) = begin
 
     flux3_left  = @views udata[1] * (w3data[1, 1] + pdata[1]) + ν * udata[1] * (w2data[2, 1] - udata[1] * w1data[2, 1])
     flux3_right = @views udata[2] * (w3data[1, 2] + pdata[2]) + ν * udata[2] * (w2data[2, 2] - udata[2] * w1data[2, 2])
+
+    res1 = (w1 - w1init) * rdt + flux1_right - flux1_left
+    res2 = (w2 - w2init) * rdt + flux2_right - flux2_left
+    res3 = (w3 - w3init) * rdt + flux3_right - flux3_left
+    (res1.^2 + res2.^2 + res3.^2)
+end
+
+element_loss(nodes, data, init, dt) = begin
+
+    # data = [𝑤₁; 𝑤₂; 𝑤₃]
+    rdt = 1.0 / dt
+
+    # # Long live the isoparametric elements!
+    # fcoord = [nodes'; ones(1, 2)]
+    # coord = Hi * vec(fcoord)
+
+    # transform the data into local coordinate
+    Δ = nodes[2] - nodes[1]
+    det = 0.5Δ
+    ratio = [1.0, 0.5Δ, 1.0, 0.5Δ, 1.0, 0.5Δ]
+    f = data .* ratio
+    finit = init .* ratio
+
+    w1data = @view f[1:2, :]
+    w2data = @view f[3:4, :]
+    w3data = @view f[5:6, :]
+
+    w1initdata = @view finit[1:2, :]
+    w2initdata = @view finit[3:4, :]
+    w3initdata = @view finit[5:6, :]
+
+    pdata = @. (γ - 1.0) * (w3data[1, :] - 0.5 * w2data[1, :]^2 / w1data[1, :])
+
+    w1     = quad_on_element(w1data, det)
+    w1init = quad_on_element(w1initdata, det)
+    w2     = quad_on_element(w2data, det)
+    w2init = quad_on_element(w2initdata, det)
+    w3     = quad_on_element(w3data, det)
+    w3init = quad_on_element(w3initdata, det)
+
+    flux1_left  = @views w2data[1, 1]
+    flux1_right = @views w2data[1, 2]
+
+    flux2_left  = @views w2data[1, 1]^2 / w1data[1, 1] + pdata[1]
+    flux2_right = @views w2data[1, 2]^2 / w1data[1, 2] + pdata[2]
+
+    flux3_left  = @views (w2data[1, 1] / w1data[1, 1]) * (w3data[1, 1] + pdata[1])
+    flux3_right = @views (w2data[1, 2] / w1data[1, 2]) * (w3data[1, 2] + pdata[2])
 
     res1 = (w1 - w1init) * rdt + flux1_right - flux1_left
     res2 = (w2 - w2init) * rdt + flux2_right - flux2_left
