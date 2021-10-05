@@ -113,6 +113,7 @@ loss(data, fem_params) = begin
 end
 
 element_loss(nodes, data, init, dt) = begin
+    ν = 0.01
 
     # data = [𝑤₁; 𝑤₂; 𝑤₃]
     rdt = 1.0 / dt
@@ -136,7 +137,7 @@ element_loss(nodes, data, init, dt) = begin
     w2initdata = @view finit[3:4, :]
     w3initdata = @view finit[5:6, :]
 
-    pdata = @. (γ - 1.0) * (w3data[1, :] - 0.5 * w2data[1, :]^2 / w1data[1, :])
+    ρdata, udata, pdata = @views get_primary_data(w1data[1, :], w2data[1, :], w3data[1, :])
 
     w1     = quad_on_element(w1data, det)
     w1init = quad_on_element(w1initdata, det)
@@ -148,11 +149,11 @@ element_loss(nodes, data, init, dt) = begin
     flux1_left  = @views w2data[1, 1]
     flux1_right = @views w2data[1, 2]
 
-    flux2_left  = @views w2data[1, 1]^2 / w1data[1, 1] + pdata[1]
-    flux2_right = @views w2data[1, 2]^2 / w1data[1, 2] + pdata[2]
+    flux2_left  = @views w2data[1, 1]^2 / w1data[1, 1] + pdata[1] + ν * (w2data[2, 1] - udata[1] * w1data[2, 1])
+    flux2_right = @views w2data[1, 2]^2 / w1data[1, 2] + pdata[2] + ν * (w2data[2, 2] - udata[2] * w1data[2, 2])
 
-    flux3_left  = @views (w2data[1, 1] / w1data[1, 1]) * (w3data[1, 1] + pdata[1])
-    flux3_right = @views (w2data[1, 2] / w1data[1, 2]) * (w3data[1, 2] + pdata[2])
+    flux3_left  = @views udata[1] * (w3data[1, 1] + pdata[1]) + ν * udata[1] * (w2data[2, 1] - udata[1] * w1data[2, 1])
+    flux3_right = @views udata[2] * (w3data[1, 2] + pdata[2]) + ν * udata[2] * (w2data[2, 2] - udata[2] * w1data[2, 2])
 
     res1 = (w1 - w1init) * rdt + flux1_right - flux1_left
     res2 = (w2 - w2init) * rdt + flux2_right - flux2_left
@@ -252,6 +253,6 @@ end
 
 get_data(N) = begin
     mesh = get_mesh(N)
-    data_tuple = get_primary_data(mesh)
+    data_tuple = get_conservative_data(mesh)
     data = [data_tuple[1] zero(mesh) data_tuple[2] zero(mesh) data_tuple[3] zero(mesh)]' |> collect
 end
