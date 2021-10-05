@@ -43,9 +43,11 @@ train(ng = 7) = begin
 
     prob = OptimizationProblem(opt_f, data, mesh)
     # sol = solve(prob, ConjugateGradient())
-    sol = solve(prob, BFGS())
+    sol = solve(prob, BFGS(), maxiters=5000)
     data = sol.minimizer
-    @save "heat2d-steady/result_"*(@sprintf "%03i" ng)*".jld" data mesh
+    @printf "%f\n" sol.minimum
+    @save "heat2d-steady/var_result_"*(@sprintf "%03i" ng)*".jld" data mesh
+    sol
 end
 
 loss(data, mesh) = begin
@@ -82,10 +84,10 @@ element_loss(nodes, data) = begin
     u = Hi * vec(f)
 
     # coefficients below are from element governing equation
-    uxx = Hxxi * vec(f) * 4 * Δx^-2
-    uyy = Hyyi * vec(f) * 4 * Δy^-2
-    r = @. (uxx + uyy)^2
-    weights ⋅ r
+    ux = Hxi * vec(f) * 2.0 * Δx^-1
+    uy = Hyi * vec(f) * 2.0 * Δy^-1
+    r = @. ux^2 + uy^2
+    weights ⋅ r * Δx * Δy * 0.25
 end
 
 element_loss_conservative(nodes, data) = begin
@@ -201,7 +203,19 @@ Hyy(p) = [H1(p[1])*Hxx1(p[2]), H2(p[1])*Hxx1(p[2]), H1(p[1])*Hxx2(p[2]), H2(p[1]
           H3(p[1])*Hxx3(p[2]), H4(p[1])*Hxx3(p[2]), H3(p[1])*Hxx4(p[2]), H4(p[1])*Hxx4(p[2]),
           H1(p[1])*Hxx3(p[2]), H2(p[1])*Hxx3(p[2]), H1(p[1])*Hxx4(p[2]), H2(p[1])*Hxx4(p[2])]'
 
+Hx(p) = [Hx1(p[1])*H1(p[2]), Hx2(p[1])*H1(p[2]), Hx1(p[1])*H2(p[2]), Hx2(p[1])*H2(p[2]),
+          Hx3(p[1])*H1(p[2]), Hx4(p[1])*H1(p[2]), Hx3(p[1])*H2(p[2]), Hx4(p[1])*H2(p[2]),
+          Hx3(p[1])*H3(p[2]), Hx4(p[1])*H3(p[2]), Hx3(p[1])*H4(p[2]), Hx4(p[1])*H4(p[2]),
+          Hx1(p[1])*H3(p[2]), Hx2(p[1])*H3(p[2]), Hx1(p[1])*H4(p[2]), Hx2(p[1])*H4(p[2])]'
+
+Hy(p) = [H1(p[1])*Hx1(p[2]), H2(p[1])*Hx1(p[2]), H1(p[1])*Hx2(p[2]), H2(p[1])*Hx2(p[2]),
+          H3(p[1])*Hx1(p[2]), H4(p[1])*Hx1(p[2]), H3(p[1])*Hx2(p[2]), H4(p[1])*Hx2(p[2]),
+          H3(p[1])*Hx3(p[2]), H4(p[1])*Hx3(p[2]), H3(p[1])*Hx4(p[2]), H4(p[1])*Hx4(p[2]),
+          H1(p[1])*Hx3(p[2]), H2(p[1])*Hx3(p[2]), H1(p[1])*Hx4(p[2]), H2(p[1])*Hx4(p[2])]'
+
 const Hi = vcat(H.(points)...)
+const Hxi = vcat(Hx.(points)...)
+const Hyi = vcat(Hy.(points)...)
 const Hxxi = vcat(Hxx.(points)...)
 const Hyyi = vcat(Hyy.(points)...)
 

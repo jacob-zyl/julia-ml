@@ -32,17 +32,18 @@ gen(ng = 7) = begin
     @save "heat2d/data.jld" data
 end
 
-train(ng) = begin
+train(ng=10) = begin
     gen(ng)
     mesh = load("heat2d/mesh.jld")
-    data = load("heat2ddata.jld", "data")
+    data = load("heat2d/data.jld", "data")
     opt_f = OptimizationFunction(loss, GalacticOptim.AutoZygote())
 
     dt = 0.01
     for iteration in 1:50
         prob = OptimizationProblem(opt_f, data, (dt, mesh, data))
-        sol = solve(prob, ConjugateGradient())
+        sol = solve(prob, BFGS())
         data = sol.minimizer
+        @printf "%f\n" sol.minimum
         @save "heat2d/result"*(@sprintf "%04i" iteration)*".jld" data mesh
     end
 end
@@ -94,7 +95,7 @@ element_loss(nodes, data, init, dt) = begin
     α = 0.5
     r = @. (α * (uxx + uyy) + (1.0 - α) * (uinitxx + uinityy) + (uinit - u) / dt)^2
 
-    weights ⋅ r
+    weights ⋅ r * Δx * Δy * 0.25
     
 end
 
@@ -116,13 +117,17 @@ error(result::Tuple) = begin
 end
 
 
-show_map(data, mesh) = begin
+show_map(data, mesh; levels=10) = begin
     ng = sqrt(length(size(data, 2))) - 1 |> Integer
     xs = 0:0.005:1
     ys = 0:0.005:1
     fig = Figure()
     ax = Axis(fig[1, 1], aspect=DataAspect())
-    heatmap!(ax, xs, ys, interpolate(data, mesh), colormap=:bwr)
+    hm = heatmap!(ax, xs, ys, interpolate(data, mesh), colormap=:bwr)
+    ct = contour!(ax, xs, ys, [interpolate(data, mesh)(x, y) for x in xs, y in ys],
+                overdraw=true, levels=levels)
+    Colorbar(fig[1, 2], hm)
+    #Colorbar(fig[1, 3], ct)
     fig
 end
 

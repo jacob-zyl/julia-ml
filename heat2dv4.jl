@@ -5,8 +5,6 @@ using CairoMakie
 using Zygote: dropgrad, ignore, Buffer, jacobian, hessian
 using ForwardDiff: derivative
 using JLD
-using FastGaussQuadrature
-using Quadrature, HCubature
 
 const NK = 4
 
@@ -18,7 +16,6 @@ gen(ng = 7) = begin
     upper_wall, lower_wall, left_wall, right_wall = walls(ng)
 
     side = ng^-1 * (0:ng) |> collect
-    # side = @. 0.5 - 0.5cos(pi*side)
     nodes = hcat(map(x->hcat(vcat.(side', x)...), side)...)
     data = zeros(4, nn)
     data[1, :] = ones(nn)
@@ -31,25 +28,28 @@ gen(ng = 7) = begin
 
     elnodes = hcat(map(p -> e2nvec(p, ng), 1:ne)...)
 
-    @save "heat2d-steady/mesh.jld" ng ne nn elnodes nodes
-    @save "heat2d-steady/data.jld" data
+    @save "heat2d/mesh.jld" ng ne nn elnodes nodes
+    @save "heat2d/data.jld" data
 end
 
-train(ng = 7) = begin
+train(ng=10) = begin
     gen(ng)
-    mesh = load("heat2d-steady/mesh.jld")
-    data = load("heat2d-steady/data.jld", "data")
+    mesh = load("heat2d/mesh.jld")
+    data = load("heat2d/data.jld", "data")
     opt_f = OptimizationFunction(loss, GalacticOptim.AutoZygote())
 
-    prob = OptimizationProblem(opt_f, data, mesh)
-    # sol = solve(prob, ConjugateGradient())
-    sol = solve(prob, BFGS(), maxiters=5000)
-    data = sol.minimizer
-    @printf "%f\n" sol.minimum
-    @save "heat2d-steady/result_"*(@sprintf "%03i" ng)*".jld" data mesh
+    dt = 0.01
+    for iteration in 1:50
+        prob = OptimizationProblem(opt_f, data, (dt, mesh, data))
+        sol = solve(prob, BFGS())
+        data = sol.minimizer
+        @printf "%f\n" sol.minimum
+        @save "heat2d/var3_"*(@sprintf "%02i" ng)*"_result"*(@sprintf "%04i" iteration)*".jld" data mesh
+    end
 end
 
-loss(data, mesh) = begin
+loss(data, fem_dict) = begin
+    dt, mesh, data_init = fem_dict
     ng = mesh["ng"]
     ne = mesh["ne"]
     nodes = mesh["nodes"]
@@ -69,43 +69,36 @@ loss(data, mesh) = begin
         indice = elnodes[:, iters]
         elnode = @views nodes[:, indice]
         eldata = @views data[:, indice]
-        sum += element_loss(elnode, eldata)
+        elinit = @views data_init[:, indice]
+        sum += element_loss(elnode, eldata, elinit, dt)
     end
     sum
 end
 
-element_loss(nodes, data) = begin
+element_loss(nodes, data, init, dt) = begin
     Δx = nodes[1, 2] - nodes[1, 1]
     Δy = nodes[2, 4] - nodes[2, 1]
     ratio = Float64[1, 0.5Δx, 0.5Δy, 0.25Δx*Δy]
     f = data .* ratio
+    finit = init .* ratio
 
     u = Hi * vec(f)
+    uinit = Hi * vec(finit)
+    
+    ux = Hxi * vec(f) * 2.0 * Δx^-1
+    uy = Hyi * vec(f) * 2.0 * Δy^-1
+
 
     # coefficients below are from element governing equation
-    uxx = Hxxi * vec(f) * 4 * Δx^-2
-    uyy = Hyyi * vec(f) * 4 * Δy^-2
-    r = @. (uxx + uyy)^2
-    (weights ⋅ r)
-end
+    uinitxx = Hxxi * vec(finit) * 4 * Δx^-2
+    uinityy = Hyyi * vec(finit) * 4 * Δy^-2
 
-element_loss_conservative(nodes, data) = begin
-    Δx = nodes[1, 2] - nodes[1, 1]
-    Δy = nodes[2, 4] - nodes[2, 1]
-    ratio = Float64[1, 0.5Δx, 0.5Δy, 0.25Δx*Δy]
-    f = data .* ratio
+    α = 0.5
+    r = @. α * dt * (ux^2 + uy^2) + u^2 - 2u * uinit - (1.0 - α) * 2dt * u * (uinitxx + uinityy)
+    #r = @. 0.5dt * (ux^2 + uy^2) + u^2 - 2u * uinit - dt * u * (uinitxx + uinityy)
 
-    # damn... magic numbers
-    Nindex = [15, 16, 11, 12]
-    Sindex = [3, 4, 7, 8]
-    Eindex = [6, 8, 10, 12]
-    Windex = [2, 4, 14, 16]
-    fN = @view f[Nindex]
-    fS = @view f[Sindex]
-    fW = @view f[Windex]
-    fE = @view f[Eindex]
-    res = Wthi ⋅ (fN + fE - fS - fW)
-    res^2
+    weights ⋅ r * Δx * Δy * 0.25
+    
 end
 
 f_exact(x, y) = sinpi(x) * sinh(pi * y) / sinh(pi)
@@ -114,48 +107,43 @@ fy_exact(x, y) = sinpi(x) * cosh(pi * y) * pi / sinh(pi)
 fxy_exact(x, y) = cospi(x) * cosh(pi * y) * pi^2 / sinh(pi)
 f_test(x) = [f_exact(x[1], x[2]), fx_exact(x[1], x[2]), fy_exact(x[1], x[2]), fxy_exact(x[1], x[2])]
 
-error(result) = error(load(result, "data"), load(result, "mesh"))
-error(data, mesh) = begin
-    integrand(x, p) = (interpolate(data, mesh)(x[1], x[2]) - f_exact(x[1], x[2]))^2
-    prob = QuadratureProblem(integrand, zeros(2), ones(2))
-    sol = solve(prob, HCubatureJL())
-    sol.u |> sqrt
+error(sol, mesh) = begin
+    nodes = mesh["nodes"]
+    u = sol.minimizer
+    v = hcat(([nodes[:, i] for i in 1:size(nodes, 2)] .|> f_test)...)
+    sqrt.((mean(abs2, u - v, dims=2)))
 end
 
-show_map(result) = show_map(load(result, "data"), load(result, "mesh"))
-show_map(data, mesh) = begin
+error(result::Tuple) = begin
+    error(result[1], result[3])
+end
+
+
+show_map(data, mesh; levels=10) = begin
     ng = sqrt(length(size(data, 2))) - 1 |> Integer
     xs = 0:0.005:1
     ys = 0:0.005:1
     fig = Figure()
     ax = Axis(fig[1, 1], aspect=DataAspect())
-    heatmap!(ax, xs, ys, interpolate(data, mesh), colormap=:bwr)
+    hm = heatmap!(ax, xs, ys, interpolate(data, mesh), colormap=:bwr)
+    ct = contour!(ax, xs, ys, [interpolate(data, mesh)(x, y) for x in xs, y in ys],
+                overdraw=true, levels=levels)
+    Colorbar(fig[1, 2], hm)
+    #Colorbar(fig[1, 3], ct)
     fig
 end
 
-show_loss_map(data, mesh) = begin
-    ng = mesh["ng"]
-    ne = mesh["ne"]
-    nodes = mesh["nodes"]
-    elnodes = mesh["elnodes"]
-    xs = Float64[]
-    ys = Float64[]
-    zs = Float64[]
-    for iters in 1:ne
-        indice = elnodes[:, iters]
-        elnode = @views nodes[:, indice]
-        eldata = @views data[:, indice]
-        append!(xs, mean(elnode, dims=2)[1])
-        append!(ys, mean(elnode, dims=2)[2])
-        append!(zs, element_loss(elnode, eldata))
+show_map_bak(sol, nodes) = begin
+    u = sol.minimizer[1, :]
+    v = hcat(([nodes[:, i] for i in 1:size(nodes, 2)] .|> f_test)...)
+    ng = sqrt(length(u)) - 1 |> Integer
+    error_map = map(1:ng^2) do x
+        element_loss(x, ng, sol.minimizer, nodes) |> sqrt
     end
-    fig = Figure()
-    ax = Axis(fig[1, 1], aspect=DataAspect())
-    heatmap(xs, ys, zs)
-    #Colorbar(fig[1, 2], limits = (minimum(zs), maximum(zs)))
-    fig
+    p1 = show_map(sol)
+    p2 = heatmap(log10.(reshape(error_map, ng, ng))', aspect_ratio=1)
+    plot(p1, p2)
 end
-
 
 walls(NG) = begin
     upper_wall = ((NG+1)*NG+1):(NG+1)^2
@@ -167,6 +155,7 @@ end
 
 # correctness of code blow verified.
 
+using FastGaussQuadrature
 const P, W = gausslegendre(NK)
 
 const points = tuple.(P', P)
@@ -202,7 +191,21 @@ Hyy(p) = [H1(p[1])*Hxx1(p[2]), H2(p[1])*Hxx1(p[2]), H1(p[1])*Hxx2(p[2]), H2(p[1]
           H3(p[1])*Hxx3(p[2]), H4(p[1])*Hxx3(p[2]), H3(p[1])*Hxx4(p[2]), H4(p[1])*Hxx4(p[2]),
           H1(p[1])*Hxx3(p[2]), H2(p[1])*Hxx3(p[2]), H1(p[1])*Hxx4(p[2]), H2(p[1])*Hxx4(p[2])]'
 
+
+Hx(p) = [Hx1(p[1])*H1(p[2]), Hx2(p[1])*H1(p[2]), Hx1(p[1])*H2(p[2]), Hx2(p[1])*H2(p[2]),
+          Hx3(p[1])*H1(p[2]), Hx4(p[1])*H1(p[2]), Hx3(p[1])*H2(p[2]), Hx4(p[1])*H2(p[2]),
+          Hx3(p[1])*H3(p[2]), Hx4(p[1])*H3(p[2]), Hx3(p[1])*H4(p[2]), Hx4(p[1])*H4(p[2]),
+          Hx1(p[1])*H3(p[2]), Hx2(p[1])*H3(p[2]), Hx1(p[1])*H4(p[2]), Hx2(p[1])*H4(p[2])]'
+
+Hy(p) = [H1(p[1])*Hx1(p[2]), H2(p[1])*Hx1(p[2]), H1(p[1])*Hx2(p[2]), H2(p[1])*Hx2(p[2]),
+          H3(p[1])*Hx1(p[2]), H4(p[1])*Hx1(p[2]), H3(p[1])*Hx2(p[2]), H4(p[1])*Hx2(p[2]),
+          H3(p[1])*Hx3(p[2]), H4(p[1])*Hx3(p[2]), H3(p[1])*Hx4(p[2]), H4(p[1])*Hx4(p[2]),
+          H1(p[1])*Hx3(p[2]), H2(p[1])*Hx3(p[2]), H1(p[1])*Hx4(p[2]), H2(p[1])*Hx4(p[2])]'
+
+
 const Hi = vcat(H.(points)...)
+const Hxi = vcat(Hx.(points)...)
+const Hyi = vcat(Hy.(points)...)
 const Hxxi = vcat(Hxx.(points)...)
 const Hyyi = vcat(Hyy.(points)...)
 
