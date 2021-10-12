@@ -14,6 +14,7 @@ gen(ng=10) = begin
     upper_wall, lower_wall, left_wall, right_wall = walls(ng)
 
     side = ng^-1 * (0:ng) |> collect
+    chebside = side .|> 0.5 - 0.5cospi(x)
     nodes = hcat(map(x->hcat(vcat.(side', x)...), side)...)
     data = zeros(8, nn)
 
@@ -30,28 +31,27 @@ gen(ng=10) = begin
     @save "driven_cavity/data.jld" data
 end
 
-train(data_init, mesh_init; task="re100_result", nu = 0.01, algo=BFGS()) = begin
+train(data_init, mesh_init; task="re100", nu = 0.01, algo=BFGS(), maxiters=1000) = begin
     data  = data_init
     mesh  = mesh_init
     opt_f = OptimizationFunction(loss, GalacticOptim.AutoZygote())
     prob = OptimizationProblem(opt_f, data, (nu, mesh))
-    sol = solve(prob, algo, maxiters=1000)
+    sol = solve(prob, algo, maxiters=maxiters)
     data = sol.minimizer
     @printf "%f\n" sol.minimum
     @save "driven_cavity/"*task*".jld" data mesh
+    sol
 end
-
-train(;ng=10, task="re100_result", nu = 0.01, algo=BFGS()) = begin
+train(;ng=10, task="re100_result", nu = 0.01, algo=BFGS(), maxiters=1000) = begin
     gen(ng)
     mesh = load("driven_cavity/mesh.jld")
     data = load("driven_cavity/data.jld", "data")
-    train(data, mesh; task = task, nu = nu, algo=algo)
+    train(data, mesh; task = task, nu = nu, algo=algo, maxiters=maxiters)
 end
-
-train(jldfile; task="re100_new", nu = 0.01, algo=BFGS()) = begin
+train(jldfile; task="re100_new", nu = 0.01, algo=BFGS(), maxiters=1000) = begin
     mesh = load(jldfile, "mesh")
     data = load(jldfile, "data")
-    train(data, mesh; task = task, nu = nu, algo = algo)
+    train(data, mesh; task = task, nu = nu, algo = algo, maxiters=maxiters)
 end
 
 loss(data, fem_dict) = begin

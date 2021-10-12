@@ -72,6 +72,7 @@ train(N, dt, T) = begin
     mesh = get_mesh(N)
     data = get_data(N)
     loss_f = OptimizationFunction(loss, GalacticOptim.AutoZygote())
+    loss_f2 = OptimizationFunction(loss2, GalacticOptim.AutoZygote())
 
     time = 0.0
     iters = 0
@@ -79,6 +80,11 @@ train(N, dt, T) = begin
         prob = OptimizationProblem(loss_f, data, (dt, mesh, data))
         sol = solve(prob, BFGS())
         data = sol.minimizer
+        
+        prob = OptimizationProblem(loss_f2, data, (dt, mesh, data))
+        sol = solve(prob, BFGS())
+        data = sol.minimizer
+        
         @printf "%e\n" sol.minimum
         time += dt
         iters += 1
@@ -107,12 +113,12 @@ loss(data, fem_params) = begin
         elnode = @views mesh[indice]
         eldata = @views data[:, indice]
         elinit = @views data_init[:, indice]
-        loss += element_loss2(elnode, eldata, elinit, dt)
+        loss += element_loss(elnode, eldata, elinit, dt)
     end
     loss
 end
 
-element_loss2(nodes, data, init, dt) = begin
+element_loss(nodes, data, init, dt) = begin
     ν = 0.0
 
     # data = [𝑤₁; 𝑤₂; 𝑤₃]
@@ -158,17 +164,80 @@ element_loss2(nodes, data, init, dt) = begin
 
     flux1init_left  = w2initdata[1, 1]
     flux1init_right = w2initdata[1, 2]
+    
+    res1 = (w1 - w1init) * rdt + flux1_right - flux1_left
+    res2 = (w2 - w2init) * rdt + flux2_right - flux2_left
+    res3 = (w3 - w3init) * rdt + flux3_right - flux3_left  
+    
+    # flux2init_left  = w2initdata[1, 1]^2 / w1initdata[1, 1] + pinitdata[1]# + ν * (w2initdata[2, 1] - uinitdata[1] * w1initdata[2, 1])
+    # flux2init_right = w2initdata[1, 2]^2 / w1initdata[1, 2] + pinitdata[2]# + ν * (w2initdata[2, 2] - uinitdata[2] * w1initdata[2, 2])
 
-    flux2init_left  = w2initdata[1, 1]^2 / w1initdata[1, 1] + pinitdata[1]# + ν * (w2initdata[2, 1] - uinitdata[1] * w1initdata[2, 1])
-    flux2init_right = w2initdata[1, 2]^2 / w1initdata[1, 2] + pinitdata[2]# + ν * (w2initdata[2, 2] - uinitdata[2] * w1initdata[2, 2])
+    # flux3init_left  = uinitdata[1] * (w3initdata[1, 1] + pinitdata[1])# + ν * uinitdata[1] * (w2initdata[2, 1] - uinitdata[1] * w1initdata[2, 1])
+    # flux3init_right = uinitdata[2] * (w3initdata[1, 2] + pinitdata[2])# + ν * uinitdata[2] * (w2initdata[2, 2] - uinitdata[2] * w1initdata[2, 2])
 
-    flux3init_left  = uinitdata[1] * (w3initdata[1, 1] + pinitdata[1])# + ν * uinitdata[1] * (w2initdata[2, 1] - uinitdata[1] * w1initdata[2, 1])
-    flux3init_right = uinitdata[2] * (w3initdata[1, 2] + pinitdata[2])# + ν * uinitdata[2] * (w2initdata[2, 2] - uinitdata[2] * w1initdata[2, 2])
-
-    res1 = (w1 - w1init) * rdt + 0.5(flux1_right + flux1init_right)  - 0.5(flux1_left + flux1init_left)
-    res2 = (w2 - w2init) * rdt + 0.5(flux2_right + flux2init_right)  - 0.5(flux2_left + flux2init_left)
-    res3 = (w3 - w3init) * rdt + 0.5(flux3_right + flux3init_right)  - 0.5(flux3_left + flux3init_left)
+    # res1 = (w1 - w1init) * rdt + 0.5(flux1_right + flux1init_right)  - 0.5(flux1_left + flux1init_left)
+    # res2 = (w2 - w2init) * rdt + 0.5(flux2_right + flux2init_right)  - 0.5(flux2_left + flux2init_left)
+    # res3 = (w3 - w3init) * rdt + 0.5(flux3_right + flux3init_right)  - 0.5(flux3_left + flux3init_left)
+    
     (res1.^2 + res2.^2 + res3.^2)
+end
+
+loss2(data, fem_params) = begin
+    dt, mesh, data_init = fem_params
+    ng = length(mesh)
+    ne = ng - 1
+
+    buf = Buffer(data)
+    buf[:, :] = data[:, :]
+    buf[1, 1] = dropgrad(data[1, 1])
+    buf[1, end] = dropgrad(data[1, end])
+    buf[3, 1] = dropgrad(data[3, 1])
+    buf[3, end] = dropgrad(data[3, end])
+    buf[5, 1] = dropgrad(data[5, 1])
+    buf[5, end] = dropgrad(data[5, end])
+    data = copy(buf)
+
+    loss = 0
+    for iters in 1:ne
+        indice = [iters, iters+1]
+        elnode = @views mesh[indice]
+        eldata = @views data[:, indice]
+        elinit = @views data_init[:, indice]
+        loss += element_loss2(elnode, eldata, elinit, dt)
+    end
+    loss
+end
+
+element_loss2(nodes, data, init, dt) = begin
+    ν = 0.1
+
+    # data = [𝑤₁; 𝑤₂; 𝑤₃]
+    rdt = 1.0 / dt
+
+    # # Long live the isoparametric elements!
+    # fcoord = [nodes'; ones(1, 2)]
+    # coord = Hi * vec(fcoord)
+
+    # transform the data into local coordinate
+    Δ = nodes[2] - nodes[1]
+    det = 0.5Δ
+    ratio = [1.0, 0.5Δ, 1.0, 0.5Δ, 1.0, 0.5Δ]
+    f = data .* ratio
+    finit = init .* ratio
+
+    w2data = @view f[3:4, :]
+
+    w2initdata = @view finit[3:4, :]
+
+    u = Hi * vec(w2data)
+    uinit = Hi * vec(w2initdata)
+
+    # coefficients below are from element governing equation
+    uxx = Hxxi * vec(w2data) * 4 * Δ^-2
+
+    r = @. (uxx + (uinit - u) / dt)^2
+
+    W ⋅ r * 0.5Δ
 end
 
 using FastGaussQuadrature, Roots

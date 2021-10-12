@@ -18,13 +18,13 @@ const pr = 0.1
 
 show_result(filename) = begin
     exact_data = CSV.File(
-        "exact_sod_output", delim="    ", header=0, datarow=3,
-        select=["Column2", "Column3", "Column4", "Column5", "Column6"]) |> DataFrame
-    x        = map(t -> parse(Float64, t), exact_data.Column2)
-    density  = map(t -> parse(Float64, t), exact_data.Column3)
-    pressure = map(t -> parse(Float64, t), exact_data.Column4)
-    velocity = map(t -> parse(Float64, t), exact_data.Column5)
-    energy   = map(t -> parse(Float64, t), exact_data.Column6)
+        "exact_sod_output", delim="   ", header=0, skipto=3,
+        select=["Column1", "Column2", "Column3", "Column4", "Column5"]) |> DataFrame
+    x        = map(t -> parse(Float64, t), exact_data.Column1)
+    density  = map(t -> parse(Float64, t), exact_data.Column2)
+    pressure = map(t -> parse(Float64, t), exact_data.Column3)
+    velocity = map(t -> parse(Float64, t), exact_data.Column4)
+    energy   = map(t -> parse(Float64, t), exact_data.Column5)
 
     time = load(filename, "time")
     mesh = load(filename, "mesh")

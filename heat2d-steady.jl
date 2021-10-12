@@ -46,7 +46,7 @@ train(ng = 7) = begin
     sol = solve(prob, BFGS(), maxiters=5000)
     data = sol.minimizer
     @printf "%f\n" sol.minimum
-    @save "heat2d-steady/var_result_"*(@sprintf "%03i" ng)*".jld" data mesh
+    @save "heat2d-steady/sterm_var_result_"*(@sprintf "%03i" ng)*".jld" data mesh
     sol
 end
 
@@ -86,33 +86,14 @@ element_loss(nodes, data) = begin
     # coefficients below are from element governing equation
     ux = Hxi * vec(f) * 2.0 * Δx^-1
     uy = Hyi * vec(f) * 2.0 * Δy^-1
-    r = @. ux^2 + uy^2
+    r = @. 0.5(ux^2 + uy^2)
     weights ⋅ r * Δx * Δy * 0.25
 end
 
-element_loss_conservative(nodes, data) = begin
-    Δx = nodes[1, 2] - nodes[1, 1]
-    Δy = nodes[2, 4] - nodes[2, 1]
-    ratio = Float64[1, 0.5Δx, 0.5Δy, 0.25Δx*Δy]
-    f = data .* ratio
-
-    # damn... magic numbers
-    Nindex = [15, 16, 11, 12]
-    Sindex = [3, 4, 7, 8]
-    Eindex = [6, 8, 10, 12]
-    Windex = [2, 4, 14, 16]
-    fN = @view f[Nindex]
-    fS = @view f[Sindex]
-    fW = @view f[Windex]
-    fE = @view f[Eindex]
-    res = Wthi ⋅ (fN + fE - fS - fW)
-    res^2
-end
-
 f_exact(x, y) = sinpi(x) * sinh(pi * y) / sinh(pi)
-fx_exact(x, y) = cospi(x) * sinh(pi * y) * pi / sinh(pi)
-fy_exact(x, y) = sinpi(x) * cosh(pi * y) * pi / sinh(pi)
-fxy_exact(x, y) = cospi(x) * cosh(pi * y) * pi^2 / sinh(pi)
+fx_exact(x, y) = derivative(p -> f_exact(p, y), x)
+fy_exact(x, y) = derivative(p -> f_exact(x, p), y)
+fxy_exact(x, y) = derivative(p -> fx_exact(x, p), y)
 f_test(x) = [f_exact(x[1], x[2]), fx_exact(x[1], x[2]), fy_exact(x[1], x[2]), fxy_exact(x[1], x[2])]
 
 error(result) = error(load(result, "data"), load(result, "mesh"))

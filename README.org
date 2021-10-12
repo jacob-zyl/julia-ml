@@ -66,6 +66,16 @@ fem1.jl fem2.jl fem3.jl fem4.jl fem5.jl are very old test files.
 | sem7.jl | half-mode constrain implemented, not working              |
 |---------+-----------------------------------------------------------|
 
+** Heat Equation
+
+|-------------+-------------------------------------------------------|
+| heat2d.jl   | The working code                                      |
+| heat2dv2.jl | Failed code trying the convection form                |
+| heat2dv3.jl | The same code as heat2d.jl                            |
+| heat2dv4.jl | Variational methods tried in unsteady heat equation   |
+|-------------+-------------------------------------------------------|
+
+
 *** Benchmark test
 
 | \(nu = 0.005\) | Hermite | SEM C1 | SEM C2 | Hermite |
