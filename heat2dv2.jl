@@ -206,10 +206,6 @@ const Hi = vcat(H.(points)...)
 const Hxxi = vcat(Hxx.(points)...)
 const Hyyi = vcat(Hyy.(points)...)
 
-const Hi = vcat(H.(points)...)
-const Hxxi = vcat(Hxx.(points)...)
-const Hyyi = vcat(Hyy.(points)...)
-
 h(x::Real) = [H1(x) H2(x) H3(x) H4(x)]
 hx(x::Real) = [Hx1(x) Hx2(x) Hx3(x) Hx4(x)]
 h(x::Vector) = vcat(h.(x)...)

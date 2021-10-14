@@ -128,7 +128,7 @@ show_map(u::Array) = begin
     )
 end
 
-show_map(sol, nodes) = begin
+#= show_map(sol, nodes) = begin
     theme(:vibrant)
     u = sol.minimizer[1, :]
     v = hcat(([nodes[:, i] for i in 1:size(nodes, 2)] .|> f_test)...)
@@ -140,7 +140,7 @@ show_map(sol, nodes) = begin
     p2 = heatmap(log10.(reshape(error_map, ng, ng))', aspect_ratio=1)
     plot(p1, p2)
 end
-
+ =#
 walls(NG) = begin
     upper_wall = ((NG+1)*NG+1):(NG+1)^2
     lower_wall = 1:(NG+1)

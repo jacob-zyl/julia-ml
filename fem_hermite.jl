@@ -62,7 +62,7 @@ end
 
 function point_interpolate_global(u, x, q)
     p = point_from_global_to_local(x, q)
-    point_interpolate_local(p)
+    point_interpolate_local(u, p)
 end
 
 function point_residual(u, x, p)
