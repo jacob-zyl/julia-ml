@@ -6,22 +6,22 @@ using Zygote
 const NK = 4
 const NK_LESS = 2
 
-const P, W = gausslegendre(NK)
+const POINTS_1D, WEIGHTS_1D = gausslegendre(NK)
 
-const POINTS_2D = tuple.(P', P) |> vec
+const POINTS_2D = tuple.(POINTS_1D', POINTS_1D) |> vec
 
-const N_POINTS = tuple.(P, 1.0ones(NK))
-const S_POINTS = tuple.(P, -1.0ones(NK))
-const W_POINTS = tuple.(-1.0ones(NK), P)
-const E_POINTS = tuple.(1.0ones(NK), P)
+const N_POINTS = tuple.(POINTS_1D, 1.0ones(NK))
+const S_POINTS = tuple.(POINTS_1D, -1.0ones(NK))
+const W_POINTS = tuple.(-1.0ones(NK), POINTS_1D)
+const E_POINTS = tuple.(1.0ones(NK), POINTS_1D)
     
-const WEIGHTS_2D = kron(W, W)
+const WEIGHTS_2D = kron(WEIGHTS_1D, WEIGHTS_1D)
 
-const P_LESS, W_LESS = gausslegendre(NK_LESS)
+const POINTS_1D_LESS, WEIGHTS_1D_LESS = gausslegendre(NK_LESS)
 
-const POINTS_2D_LESS = tuple.(P_LESS', P_LESS) |> vec
+const POINTS_2D_LESS = tuple.(POINTS_1D_LESS', POINTS_1D_LESS) |> vec
 
-const WEIGHTS_2D_LESS = kron(W_LESS, W_LESS)
+const WEIGHTS_2D_LESS = kron(WEIGHTS_1D_LESS, WEIGHTS_1D_LESS)
 
 # This is basis of Hermite interpolant
 h1(x) = (1.0 - x)^2 * (2.0 + x) * 0.25
@@ -148,8 +148,8 @@ const S_HYY = hermite2d_yy(S_POINTS)
 const W_HYY = hermite2d_yy(W_POINTS)
 const E_HYY = hermite2d_yy(E_POINTS)
 
-const H_1D = hermite1d(P)
-const HX_1D = hermite1d_derivative(P)
+const H_1D = hermite1d(POINTS_1D)
+const HX_1D = hermite1d_derivative(POINTS_1D)
 
 const H_2D_LESS = hermite2d(POINTS_2D_LESS)
 const HX_2D_LESS =hermite2d_x(POINTS_2D_LESS)
@@ -158,14 +158,30 @@ const HXX_2D_LESS = hermite2d_xx(POINTS_2D_LESS)
 const HYY_2D_LESS = hermite2d_yy(POINTS_2D_LESS)
 
 
-const H_1D_LESS = hermite1d(P_LESS)
-const HX_1D_LESS = hermite1d_derivative(P_LESS)
+const H_1D_LESS = hermite1d(POINTS_1D_LESS)
+const HX_1D_LESS = hermite1d_derivative(POINTS_1D_LESS)
 
-const WH_1D_LESS = W_LESS' * H_1D_LESS
+const WH_1D_LESS = WEIGHTS_1D_LESS' * H_1D_LESS
 const WH_2D_LESS = WEIGHTS_2D_LESS' * H_2D_LESS
 
 const WH_2D  = WEIGHTS_2D' * H_2D
-const WH_1D = W' * H_1D
+const WH_1D = WEIGHTS_1D' * H_1D
+
+const N_WHX = WEIGHTS_1D' * N_HX
+const N_WHY = WEIGHTS_1D' * N_HY
+const N_WH  = WEIGHTS_1D' * N_H
+
+const S_WHX = WEIGHTS_1D' * S_HX
+const S_WHY = WEIGHTS_1D' * S_HY
+const S_WH  = WEIGHTS_1D' * S_H
+
+const E_WHX = WEIGHTS_1D' * E_HX
+const E_WHY = WEIGHTS_1D' * E_HY
+const E_WH  = WEIGHTS_1D' * E_H
+
+const W_WHX = WEIGHTS_1D' * W_HX
+const W_WHY = WEIGHTS_1D' * W_HY
+const W_WH  = WEIGHTS_1D' * W_H
 
 value_on_points_1d(data, points) = hermite1d(points) * data
 value_on_points_2d(data, points) = hermite2d(points) * data
