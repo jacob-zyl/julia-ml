@@ -1,17 +1,15 @@
+push!(LOAD_PATH, pwd())
+using DEUtils: WH_2D, N_WHY, S_WHY, W_WHX, E_WHX, value_on_points_2d
 using LinearAlgebra, Statistics
 using GalacticOptim, Optim
 using Printf
 using CairoMakie
-using Zygote: dropgrad, ignore, Buffer, jacobian, hessian
+using Zygote: dropgrad, Buffer
 using ForwardDiff: derivative
 using JLD
 using Quadrature, HCubature
 
-const NK = 4
-const oneNK = 2
-
 gen(ng = 7) = begin
-    # fem_dict = load("prob.jld")
     nn = (ng + 1)^2
     ne = ng^2
 
@@ -23,7 +21,6 @@ gen(ng = 7) = begin
     data[1, :] = ones(nn)
 
     data[1, upper_wall] = nodes[1, upper_wall] .|> sinpi
-    # data[3, upper_wall] = (nodes[1, upper_wall] .|> sinpi) .* (pi / tanh(pi))
     data[1, lower_wall] = nodes[1, lower_wall] .|> zero
     data[1, left_wall] = -nodes[2, left_wall] .|> zero
     data[1, right_wall] = 1 .- nodes[2, right_wall] .|> zero
@@ -41,66 +38,68 @@ element_loss_diffusive(nodes, data, init, dt) = begin
     f = @view (data .* ratio)[:]
     finit = @view (init .* ratio)[:]
 
-    u = oneHi * f
-    uinit = oneHi * finit
+    u = DEUtils.H_2D * f
+    uinit = DEUtils.H_2D * finit
     
-    get_global_xy(p) = (p[1] * 0.5Δx + 0.5nodes[1, 2] + 0.5nodes[1, 1], p[2] * 0.5Δy + 0.5nodes[2, 4] + 0.5nodes[2, 1])
+    get_global_xy(p) = (
+        p[1] * 0.5Δx + 0.5nodes[1, 2] + 0.5nodes[1, 1], 
+        p[2] * 0.5Δy + 0.5nodes[2, 4] + 0.5nodes[2, 1])
 
     ## coefficients below are from element governing equation
     
-    uxx = oneHxxi * f * 4.0Δx^-2
-    uyy = oneHyyi * f * 4.0Δy^-2
+    uxx = DEUtils.HXX_2D * f * 4.0Δx^-2
+    uyy = DEUtils.HYY_2D * f * 4.0Δy^-2
     
-    ux = oneHxxi * f * 2.0Δx^-1
-    uy = oneHyyi * f * 2.0Δy^-1
+    #ux = DEUtils.HX_2D * f * 2.0Δx^-1
+    #uy = DEUtils.HY_2D * f * 2.0Δy^-1
 
     source_term = @. fs(get_global_xy(onepoints))
 
     nu = 1.0
     rdt = 1.0 / dt
-    #r = @. 0.5nu * (ux^2 + uy^2) - u * ( (-0.5u + uinit) * rdt + source_term)
     
-    r = @. ( (u - uinit) / dt - nu * (uxx + uyy) - source_term )^2
+    r = @. ( (u - uinit) * rdt - nu * (uxx + uyy) - source_term )^2
 
-    oneweights ⋅ r * Δx * Δy * 0.25
+    DEUtils.WEIGHTS_2D ⋅ r * Δx * Δy * 0.25
 end
 
-element_loss(nodes, data, init, dt) = begin
+element_loss_convective(nodes, data, init, dt) = begin
     Δx = nodes[1, 2] - nodes[1, 1]
     Δy = nodes[2, 4] - nodes[2, 1]
     ratio = Float64[1, 0.5Δx, 0.5Δy, 0.25Δx*Δy]
-    get_global_xy(p) = (p[1] * 0.5Δx + 0.5nodes[1, 2] + 0.5nodes[1, 1], 
+    get_global_xy(p) = (
+        p[1] * 0.5Δx + 0.5nodes[1, 2] + 0.5nodes[1, 1], 
         p[2] * 0.5Δy + 0.5nodes[2, 4] + 0.5nodes[2, 1])
 
     f = @views (data .* ratio)[:]
     finit = @views (init .* ratio)[:]
 
-    u = wHi ⋅ f
-    uinit = wHi ⋅ finit
+    w = wHi ⋅ f
+    winit = wHi ⋅ finit
     # damn... magic numbers
     Nindex = [13, 14, 9, 10]
     Sindex = [1, 2, 5, 6]
     Eindex = [5, 7, 9, 11]
     Windex = [1, 3, 13, 15]
 
-    uN = NHi * finit
-    uS = SHi * finit
-    uW = WHi * finit
-    uE = EHi * finit
+    wN = NHi * finit
+    wS = SHi * finit
+    wW = WHi * finit
+    wE = EHi * finit
     
-    fN = W ⋅ (uN .* us.(get_global_xy.(Npoints)))
-    fS = W ⋅ (uS .* us.(get_global_xy.(Spoints)))
-    fW = W ⋅ (uW .* us.(get_global_xy.(Wpoints)))
-    fE = W ⋅ (uE .* us.(get_global_xy.(Epoints)))
+    fN = W ⋅ (wN .* vs.(get_global_xy.(Npoints)))
+    fS = W ⋅ (wS .* -vs.(get_global_xy.(Spoints)))
+    fW = W ⋅ (wW .* -us.(get_global_xy.(Wpoints)))
+    fE = W ⋅ (wE .* us.(get_global_xy.(Epoints)))
         
-    r = ((u - uinit) / dt + fN * 0.5Δx + fE * 0.5Δy + fS * 0.5Δx + fW * 0.5Δy)^2
+    ((w - winit) / dt + fN * 0.5Δx + fE * 0.5Δy + fS * 0.5Δx + fW * 0.5Δy)^2
 end
 
 train(ng=10) = begin
     gen(ng)
     mesh = load("cd/mesh.jld")
     data = load("cd/data.jld", "data")
-    opt_f = OptimizationFunction(loss, GalacticOptim.AutoZygote())
+    opt_f = OptimizationFunction(loss_convective, GalacticOptim.AutoZygote())
     opt_f_diffusive = OptimizationFunction(loss_diffusive, GalacticOptim.AutoZygote())
 
     dt = 0.02
@@ -155,7 +154,7 @@ loss_diffusive(data, fem_dict) = begin
     sum
 end
 
-loss(data, fem_dict) = begin
+loss_convective(data, fem_dict) = begin
     dt, mesh, data_init = fem_dict
     ng = mesh["ng"]
     ne = mesh["ne"]
@@ -177,7 +176,7 @@ loss(data, fem_dict) = begin
         elnode = @views nodes[:, indice]
         eldata = @views data[:, indice]
         elinit = @views data_init[:, indice]
-        sum += element_loss(elnode, eldata, elinit, dt)
+        sum += element_loss_convective(elnode, eldata, elinit, dt)
     end
     sum
 end
@@ -198,7 +197,11 @@ f_exact(x, y) = sinpi(x) * sinh(pi * y) / sinh(pi) - 0.1sinpi(2x) * sinpi(y) * s
 fx_exact(x, y) = derivative(p -> f_exact(p, y), x)
 fy_exact(x, y) = derivative(p -> f_exact(x, p), y)
 fxy_exact(x, y) = derivative(p -> fx_exact(x, p), y)
-f_test(x) = [f_exact(x[1], x[2]), fx_exact(x[1], x[2]), fy_exact(x[1], x[2]), fxy_exact(x[1], x[2])]
+f_test(x) = [
+    f_exact(x[1], x[2]), 
+    fx_exact(x[1], x[2]), 
+    fy_exact(x[1], x[2]), 
+    fxy_exact(x[1], x[2])]
 error(data, mesh) = begin
     integrand(x, p) = (interpolate(data, mesh)(x[1], x[2]) - f_exact(x[1], x[2]))^2
     prob = QuadratureProblem(integrand, zeros(2), ones(2))
@@ -228,60 +231,6 @@ walls(NG) = begin
     right_wall = (NG+1):(NG+1):(NG+1)^2
     (upper_wall, lower_wall, left_wall, right_wall)
 end
-
-
-
-using FastGaussQuadrature
-const P, W = gausslegendre(NK)
-
-const points = tuple.(P', P) |> vec
-
-const Npoints = tuple.(P, 1.0ones(NK))
-const Spoints = tuple.(P, -1.0ones(NK))
-const Wpoints = tuple.(-1.0ones(NK), P)
-const Epoints = tuple.(1.0ones(NK), P)
-    
-const weights = kron(W, W)
-
-const Hi = vcat(H.(points)...)
-const Hxi = vcat(Hx.(points)...)
-const Hyi = vcat(Hy.(points)...)
-const Hxxi = vcat(Hxx.(points)...)
-const Hyyi = vcat(Hyy.(points)...)
-const wHi = weights' * Hi
-
-const NHi = vcat(H.(Npoints)...)
-const SHi = vcat(H.(Spoints)...)
-const WHi = vcat(H.(Wpoints)...)
-const EHi = vcat(H.(Epoints)...)
-
-const NHxi = vcat(Hx.(Npoints)...)
-const SHxi = vcat(Hx.(Spoints)...)
-const WHxi = vcat(Hx.(Wpoints)...)
-const EHxi = vcat(Hx.(Epoints)...)
-
-const NHyi = vcat(Hy.(Npoints)...)
-const SHyi = vcat(Hy.(Spoints)...)
-const WHyi = vcat(Hy.(Wpoints)...)
-const EHyi = vcat(Hy.(Epoints)...)
-
-const hi = h(P)
-const hxi = hx(P)
-const Wthi = W' * hi
-
-
-const oneP, oneW = gausslegendre(oneNK)
-
-const onepoints = tuple.(oneP', oneP) |> vec
-const oneweights = kron(oneW, oneW)
-
-const oneHi = vcat(H.(onepoints)...)
-const oneHxi = vcat(Hx.(onepoints)...)
-const oneHyi = vcat(Hy.(onepoints)...)
-const oneHxxi = vcat(Hxx.(onepoints)...)
-const oneHyyi = vcat(Hyy.(onepoints)...)
-const onewHi = oneweights' * oneHi
-
 
 const onehi = h(oneP)
 const onehxi = hx(oneP)
@@ -327,55 +276,7 @@ interpolate(data, mesh) = begin
         ratio = Float64[1, 0.5Δx, 0.5Δy, 0.25Δx*Δy]
         ξ = (x - 0.5*(nodes[1, 2] + nodes[1, 1])) * 2 / Δx
         η = (y - 0.5*(nodes[2, 4] + nodes[2, 1])) * 2 / Δy
-        H([ξ, η]) ⋅ (data[:, mesh["elnodes"][:, ine]] .* ratio)
+        normalized_data = (data[:, mesh["elnodes"][:, ine]] .* ratio)[:]
+        value_on_points_2d(normalized_data, (ξ, η))
     end
 end
-
-# correctness of code blow verified.
-
-
-H1(x) = (1.0 - x)^2 * (2.0 + x) * 0.25
-H2(x) = (1.0 - x)^2 * (x + 1.0) * 0.25
-H3(x) = (1.0 + x)^2 * (2.0 - x) * 0.25
-H4(x) = (1.0 + x)^2 * (x - 1.0) * 0.25
-
-Hx1(x) = derivative(p -> H1(p), x)
-Hx2(x) = derivative(p -> H2(p), x)
-Hx3(x) = derivative(p -> H3(p), x)
-Hx4(x) = derivative(p -> H4(p), x)
-
-Hxx1(x) = derivative(p -> Hx1(p), x)
-Hxx2(x) = derivative(p -> Hx2(p), x)
-Hxx3(x) = derivative(p -> Hx3(p), x)
-Hxx4(x) = derivative(p -> Hx4(p), x)
-
-H(p) = [H1(p[1])*H1(p[2]), H2(p[1])*H1(p[2]), H1(p[1])*H2(p[2]), H2(p[1])*H2(p[2]),
-        H3(p[1])*H1(p[2]), H4(p[1])*H1(p[2]), H3(p[1])*H2(p[2]), H4(p[1])*H2(p[2]),
-        H3(p[1])*H3(p[2]), H4(p[1])*H3(p[2]), H3(p[1])*H4(p[2]), H4(p[1])*H4(p[2]),
-        H1(p[1])*H3(p[2]), H2(p[1])*H3(p[2]), H1(p[1])*H4(p[2]), H2(p[1])*H4(p[2])]'
-
-Hxx(p) = [Hxx1(p[1])*H1(p[2]), Hxx2(p[1])*H1(p[2]), Hxx1(p[1])*H2(p[2]), Hxx2(p[1])*H2(p[2]),
-          Hxx3(p[1])*H1(p[2]), Hxx4(p[1])*H1(p[2]), Hxx3(p[1])*H2(p[2]), Hxx4(p[1])*H2(p[2]),
-          Hxx3(p[1])*H3(p[2]), Hxx4(p[1])*H3(p[2]), Hxx3(p[1])*H4(p[2]), Hxx4(p[1])*H4(p[2]),
-          Hxx1(p[1])*H3(p[2]), Hxx2(p[1])*H3(p[2]), Hxx1(p[1])*H4(p[2]), Hxx2(p[1])*H4(p[2])]'
-
-Hyy(p) = [H1(p[1])*Hxx1(p[2]), H2(p[1])*Hxx1(p[2]), H1(p[1])*Hxx2(p[2]), H2(p[1])*Hxx2(p[2]),
-          H3(p[1])*Hxx1(p[2]), H4(p[1])*Hxx1(p[2]), H3(p[1])*Hxx2(p[2]), H4(p[1])*Hxx2(p[2]),
-          H3(p[1])*Hxx3(p[2]), H4(p[1])*Hxx3(p[2]), H3(p[1])*Hxx4(p[2]), H4(p[1])*Hxx4(p[2]),
-          H1(p[1])*Hxx3(p[2]), H2(p[1])*Hxx3(p[2]), H1(p[1])*Hxx4(p[2]), H2(p[1])*Hxx4(p[2])]'
-
-
-Hx(p) = [Hx1(p[1])*H1(p[2]), Hx2(p[1])*H1(p[2]), Hx1(p[1])*H2(p[2]), Hx2(p[1])*H2(p[2]),
-          Hx3(p[1])*H1(p[2]), Hx4(p[1])*H1(p[2]), Hx3(p[1])*H2(p[2]), Hx4(p[1])*H2(p[2]),
-          Hx3(p[1])*H3(p[2]), Hx4(p[1])*H3(p[2]), Hx3(p[1])*H4(p[2]), Hx4(p[1])*H4(p[2]),
-          Hx1(p[1])*H3(p[2]), Hx2(p[1])*H3(p[2]), Hx1(p[1])*H4(p[2]), Hx2(p[1])*H4(p[2])]'
-
-Hy(p) = [H1(p[1])*Hx1(p[2]), H2(p[1])*Hx1(p[2]), H1(p[1])*Hx2(p[2]), H2(p[1])*Hx2(p[2]),
-          H3(p[1])*Hx1(p[2]), H4(p[1])*Hx1(p[2]), H3(p[1])*Hx2(p[2]), H4(p[1])*Hx2(p[2]),
-          H3(p[1])*Hx3(p[2]), H4(p[1])*Hx3(p[2]), H3(p[1])*Hx4(p[2]), H4(p[1])*Hx4(p[2]),
-          H1(p[1])*Hx3(p[2]), H2(p[1])*Hx3(p[2]), H1(p[1])*Hx4(p[2]), H2(p[1])*Hx4(p[2])]'
-
-h(x::Real) = [H1(x) H2(x) H3(x) H4(x)]
-hx(x::Real) = [Hx1(x) Hx2(x) Hx3(x) Hx4(x)]
-h(x::Vector) = vcat(h.(x)...)
-hx(x::Vector) = vcat(hx.(x)...)
