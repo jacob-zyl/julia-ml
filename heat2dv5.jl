@@ -21,8 +21,8 @@ gen(ng = 7) = begin
     data = zeros(4, nn)
     data[1, :] = ones(nn)
 
-    # data[1, upper_wall] = nodes[1, upper_wall] .|> sinpi
-    data[3, upper_wall] = (nodes[1, upper_wall] .|> sinpi) .* (pi / tanh(pi))
+    data[1, upper_wall] = nodes[1, upper_wall] .|> sinpi
+    # data[3, upper_wall] = (nodes[1, upper_wall] .|> sinpi) .* (pi / tanh(pi))
     data[1, lower_wall] = nodes[1, lower_wall] .|> zero
     data[1, left_wall] = -nodes[2, left_wall] .|> zero
     data[1, right_wall] = 1 .- nodes[2, right_wall] .|> zero
@@ -40,11 +40,11 @@ train(ng=7) = begin
     opt_f = OptimizationFunction(loss, GalacticOptim.AutoZygote())
 
     dt = 1.0
-    for iteration in 1:5
+    for iteration in 1:500
         prob = OptimizationProblem(opt_f, data, (dt, mesh, data))
         sol = solve(prob, BFGS())
         data = sol.minimizer
-        @printf "%f\n" sol.minimum
+        #@printf "%f\n" sol.minimum
         @save "heat2d/conservative_"*(@sprintf "%02i" ng)*"_result"*(@sprintf "%04i" iteration)*".jld" data mesh
     end
 end
