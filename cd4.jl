@@ -50,15 +50,18 @@ element_loss_diffusive(nodes, data, init, dt) = begin
     uxx = DEUtils.HXX_2D * f * 4.0Δx^-2
     uyy = DEUtils.HYY_2D * f * 4.0Δy^-2
     
-    #ux = DEUtils.HX_2D * f * 2.0Δx^-1
-    #uy = DEUtils.HY_2D * f * 2.0Δy^-1
+    ux = DEUtils.HX_2D * f * 2.0Δx^-1
+    uy = DEUtils.HY_2D * f * 2.0Δy^-1
 
     source_term = @. fs(get_global_xy(DEUtils.POINTS_2D))
 
     nu = 1.0
-    rdt = 1.0 / dt
+    rdt = 1.0 / dt * 0.0
     
-    r = @. ( (u - uinit) * rdt - nu * (uxx + uyy) - source_term )^2
+    vv = @. vs(get_global_xy(DEUtils.POINTS_2D))
+    uu = @. us(get_global_xy(DEUtils.POINTS_2D))
+    
+    r = @. ( (u - uinit) * rdt + uu * ux + vv * uy - nu * (uxx + uyy) - source_term )^2
 
     DEUtils.WEIGHTS_2D ⋅ r * Δx * Δy * 0.25
 end
@@ -97,25 +100,21 @@ train(ng=10) = begin
     opt_f_convective = OptimizationFunction(loss_convective, GalacticOptim.AutoZygote())
     opt_f_diffusive = OptimizationFunction(loss_diffusive, GalacticOptim.AutoZygote())
 
+    opt_f = opt_f_convective
     dt = 0.02
     iteration = 0
-    maxiteration = 100
+    maxiteration = 1
     while true
-        
-        prob = OptimizationProblem(opt_f_convective, data, (dt, mesh, data))
-        sol_convective = solve(prob, BFGS())
-        @printf "%.3e\t" sol_convective.minimum
-        data = sol_convective.minimizer
 
-        prob_diffusive = OptimizationProblem(opt_f_diffusive, data, (dt, mesh, data))
-        sol_diffusive = solve(prob_diffusive, BFGS(), maxiters=100)
-        @printf "%.3e\n" sol_diffusive.minimum
-        data = sol_diffusive.minimizer
+        prob = OptimizationProblem(opt_f, data, (dt, mesh, data))
+        sol = solve(prob, BFGS(), maxiters=1000)
+        @printf "%.3e\n" sol.minimum
+        data = sol.minimizer
         
         iteration += 1
-        @save "cd/split_"*(@sprintf "%02i" ng)*"_result"*(@sprintf "%04i" iteration)*".jld" data mesh
+        @save "cd/steady_"*(@sprintf "%02i" ng)*"_result"*(@sprintf "%04i" iteration)*".jld" data mesh
         if iteration >= maxiteration
-            println(sol_convective.original)
+            println(sol.original)
             break
         end
     end
