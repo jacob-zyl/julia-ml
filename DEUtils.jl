@@ -3,7 +3,7 @@ module DEUtils
 using FastGaussQuadrature
 using Zygote
 
-const NK = 4
+const NK = 2
 const NK_LESS = 2
 
 const POINTS_1D, WEIGHTS_1D = gausslegendre(NK)
@@ -129,7 +129,7 @@ const E_H = hermite2d(E_POINTS)
 
 const N_HX = hermite2d_x(N_POINTS)
 const S_HX = hermite2d_x(S_POINTS)
-const W_HX = hermite2d_x.(W_POINTS)
+const W_HX = hermite2d_x(W_POINTS)
 const E_HX = hermite2d_x(E_POINTS)
 
 const N_HY = hermite2d_y(N_POINTS)
@@ -152,7 +152,7 @@ const H_1D = hermite1d(POINTS_1D)
 const HX_1D = hermite1d_derivative(POINTS_1D)
 
 const H_2D_LESS = hermite2d(POINTS_2D_LESS)
-const HX_2D_LESS =hermite2d_x(POINTS_2D_LESS)
+const HX_2D_LESS = hermite2d_x(POINTS_2D_LESS)
 const HY_2D_LESS = hermite2d_y(POINTS_2D_LESS)
 const HXX_2D_LESS = hermite2d_xx(POINTS_2D_LESS)
 const HYY_2D_LESS = hermite2d_yy(POINTS_2D_LESS)
@@ -164,7 +164,7 @@ const HX_1D_LESS = hermite1d_derivative(POINTS_1D_LESS)
 const WH_1D_LESS = WEIGHTS_1D_LESS' * H_1D_LESS
 const WH_2D_LESS = WEIGHTS_2D_LESS' * H_2D_LESS
 
-const WH_2D  = WEIGHTS_2D' * H_2D
+const WH_2D = WEIGHTS_2D' * H_2D
 const WH_1D = WEIGHTS_1D' * H_1D
 
 const N_WHX = WEIGHTS_1D' * N_HX

@@ -27,8 +27,8 @@ gen(ng = 7) = begin
 
     elnodes = hcat(map(p -> e2nvec(p, ng), 1:ne)...)
 
-    @save "cd/mesh.jld" ng ne nn elnodes nodes
-    @save "cd/data.jld" data
+    @save "cd2/mesh.jld" ng ne nn elnodes nodes
+    @save "cd2/data.jld" data
 end
 
 element_loss_diffusive(nodes, data, init, dt) = begin
@@ -50,8 +50,11 @@ element_loss_diffusive(nodes, data, init, dt) = begin
     uxx = DEUtils.HXX_2D * f * 4.0Δx^-2
     uyy = DEUtils.HYY_2D * f * 4.0Δy^-2
     
-    ux = DEUtils.HX_2D * finit * 2.0Δx^-1
-    uy = DEUtils.HY_2D * finit * 2.0Δy^-1
+    ux = DEUtils.HX_2D * f * 2.0Δx^-1
+    uy = DEUtils.HY_2D * f * 2.0Δy^-1
+    
+    uinitx = DEUtils.HX_2D * finit * 2.0Δx^-1
+    uinity = DEUtils.HY_2D * finit * 2.0Δy^-1
 
     source_term = @. fs(get_global_xy(DEUtils.POINTS_2D))
 
@@ -61,43 +64,17 @@ element_loss_diffusive(nodes, data, init, dt) = begin
     vv = @. vs(get_global_xy(DEUtils.POINTS_2D))
     uu = @. us(get_global_xy(DEUtils.POINTS_2D))
     
-    r = @. ( (u - uinit) * rdt + uu * ux + vv * uy - nu * (uxx + uyy) - source_term )^2
+    #r = @. ( (u - uinit) * rdt + uu * ux + vv * uy - nu * (uxx + uyy) - source_term )^2
+    r = @. 0.5nu * (ux^2 + uy^2) + 0.5rdt * u^2 - u + u * (uu*uinitx + vv*uinity - source_term - rdt * uinit)
 
     DEUtils.WEIGHTS_2D ⋅ r * Δx * Δy * 0.25
 end
 
-element_loss_convective(nodes, data, init, dt) = begin
-    Δx = nodes[1, 2] - nodes[1, 1]
-    Δy = nodes[2, 4] - nodes[2, 1]
-    ratio = Float64[1, 0.5Δx, 0.5Δy, 0.25Δx*Δy]
-    get_global_xy(p) = (
-        p[1] * 0.5Δx + 0.5nodes[1, 2] + 0.5nodes[1, 1], 
-        p[2] * 0.5Δy + 0.5nodes[2, 4] + 0.5nodes[2, 1])
-
-    f = @views (data .* ratio)[:]
-    finit = @views (init .* ratio)[:]
-
-    w = DEUtils.WH_2D ⋅ f
-    winit = DEUtils.WH_2D ⋅ finit
-
-    wN = DEUtils.N_H * f
-    wS = DEUtils.S_H * f
-    wW = DEUtils.W_H * f
-    wE = DEUtils.E_H * f
-    
-    fN = DEUtils.WEIGHTS_1D ⋅ (wN .* vs.(get_global_xy.(DEUtils.N_POINTS)) - DEUtils.N_HY * f)
-    fS = DEUtils.WEIGHTS_1D ⋅ (wS .* -vs.(get_global_xy.(DEUtils.S_POINTS)) + DEUtils.S_HY * f)
-    fW = DEUtils.WEIGHTS_1D ⋅ (wW .* -us.(get_global_xy.(DEUtils.W_POINTS)) + DEUtils.W_HX * f)
-    fE = DEUtils.WEIGHTS_1D ⋅ (wE .* us.(get_global_xy.(DEUtils.E_POINTS)) - DEUtils.E_HX * f)
-        
-    ((w - winit) / dt + fN * 0.5Δx + fE * 0.5Δy + fS * 0.5Δx + fW * 0.5Δy)^2
-end
 
 train(ng=10) = begin
     gen(ng)
-    mesh = load("cd/mesh.jld")
-    data = load("cd/data.jld", "data")
-    opt_f_convective = OptimizationFunction(loss_convective, GalacticOptim.AutoZygote())
+    mesh = load("cd2/mesh.jld")
+    data = load("cd2/data.jld", "data")
     opt_f_diffusive = OptimizationFunction(loss_diffusive, GalacticOptim.AutoZygote())
 
     opt_f = opt_f_diffusive
@@ -112,7 +89,7 @@ train(ng=10) = begin
         data = sol.minimizer
         
         iteration += 1
-        @save "cd/mixed_"*(@sprintf "%02i" ng)*"_result"*(@sprintf "%04i" iteration)*".jld" data mesh
+        @save "cd2/variational_"*(@sprintf "%02i" ng)*"_result"*(@sprintf "%04i" iteration)*".jld" data mesh
         if iteration >= maxiteration
             println(sol.original)
             break
@@ -144,33 +121,6 @@ loss_diffusive(data, fem_dict) = begin
         eldata = @views data[:, indice]
         elinit = @views data_init[:, indice]
         sum += element_loss_diffusive(elnode, eldata, elinit, dt)
-    end
-    sum
-end
-
-loss_convective(data, fem_dict) = begin
-    dt, mesh, data_init = fem_dict
-    ng = mesh["ng"]
-    ne = mesh["ne"]
-    nodes = mesh["nodes"]
-    elnodes = mesh["elnodes"]
-    upper_wall, lower_wall, left_wall, right_wall = walls(ng)
-
-    buf = Buffer(data)
-    buf[:, :] = data[:, :]
-    buf[1, lower_wall] = dropgrad(data[1, lower_wall])
-    buf[1, upper_wall] = dropgrad(data[1, upper_wall])
-    buf[1, left_wall] = dropgrad(data[1, left_wall])
-    buf[1, right_wall] = dropgrad(data[1, right_wall])
-    data = copy(buf)
-
-    sum = 0
-    for iters in 1:ne
-        indice = elnodes[:, iters]
-        elnode = @views nodes[:, indice]
-        eldata = @views data[:, indice]
-        elinit = @views data_init[:, indice]
-        sum += element_loss_convective(elnode, eldata, elinit, dt)
     end
     sum
 end
