@@ -1,3 +1,13 @@
+#=
+
+This version tries to solve the sod problem with a operator splitting method,
+where true navier-stokes equation is solved, the first operator is eulerian,
+and the second is laplacian.
+
+However this does not work.
+
+=#
+
 using LinearAlgebra, Statistics
 using GalacticOptim, Optim
 using Printf, CairoMakie
