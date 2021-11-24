@@ -6,12 +6,11 @@ using Zygote: dropgrad, ignore, Buffer, jacobian, hessian
 using ForwardDiff: derivative
 using JLD
 
-const NK = 2
-const oneNK = 2
-const dir = "driven_cavity4/"
+const NK = 3
+const oneNK = 3
+const dir = "driven_cavity6/"
 
 gen(ng=20) = begin
-    # fem_dict = load("prob.jld")
     nn = (ng + 1)^2
     ne = ng^2
 
@@ -35,12 +34,15 @@ gen(ng=20) = begin
     filter!(e -> e ∉ all_walls[2], inner)
     filter!(e -> e ∉ all_walls[3], inner)
     filter!(e -> e ∉ all_walls[4], inner)
+    
+    wall = 1:nn |> collect
+    filter!(e -> e ∉ inner, wall)
 
-    @save dir*"mesh.jld" ng ne nn elnodes nodes all_walls inner
+    @save dir*"mesh.jld" ng ne nn elnodes nodes all_walls inner wall
     @save dir*"data.jld" data
 end
 
-train(data_init, mesh_init, time_init; task="re100_result", nu = 0.01, dt = 0.1) = begin
+train(data_init, mesh_init, time_init; task="re100_result", nu = 0.01, dt = 0.05) = begin
     data = data_init
     mesh = mesh_init
     ng = size(data, 2) |> sqrt |> Int |> x -> x - 1
@@ -51,7 +53,7 @@ train(data_init, mesh_init, time_init; task="re100_result", nu = 0.01, dt = 0.1)
     opt_f3 = OptimizationFunction(loss3, GalacticOptim.AutoZygote())
 
     
-    for iteration in 1:50
+    for iteration in 1:1000
         
         prob2 = OptimizationProblem(opt_f2, data, (nu, dt, mesh, data))
         sol2 = solve(prob2, ConjugateGradient())
@@ -60,21 +62,27 @@ train(data_init, mesh_init, time_init; task="re100_result", nu = 0.01, dt = 0.1)
         
         prob3 = OptimizationProblem(opt_f3, data, (nu, dt, mesh, data))
         sol3 = solve(prob3, ConjugateGradient())
-        @printf "%.2e\n" sol3.minimum
+        @printf "%.2e\t" sol3.minimum
+        err = sum(abs2, sol3.minimizer[1, :] - data[1, :])
+        @printf "%.2e\n" err
         data = sol3.minimizer
         
         time += dt
         @save dir*task*"_grid"*(@sprintf "%02i" ng)*"_"*(@sprintf "%04i" iteration)*".jld" data mesh time
+        
+        if err < 1e-6
+            break
+        end
     end
 end
-train(;ng=10, task="re100_result", nu = 0.01, dt = 0.1) = begin
+train(;ng=10, task="re100_result", nu = 0.01, dt = 0.05) = begin
     gen(ng)
     mesh = load(dir*"mesh.jld")
     data = load(dir*"data.jld", "data")
     time = 0.0
     train(data, mesh, time; task = task, nu = nu, dt = dt)
 end
-train(jldfile; task="re100_new", nu = 0.01, dt = 0.1) = begin
+train(jldfile; task="re100_new", nu = 0.01, dt = 0.05) = begin
     mesh = load(jldfile, "mesh")
     data = load(jldfile, "data")
     time = load(jldfile, "time")
@@ -88,17 +96,15 @@ loss2(data, fem_dict) = begin
     ne = mesh["ne"]
     nodes = mesh["nodes"]
     elnodes = mesh["elnodes"]
-    upper_wall, lower_wall, left_wall, right_wall = mesh["all_walls"]
+    wall = mesh["wall"]
 
     buf = Buffer(data)
+    
     buf[:, :] = data[:, :]
-    
+    # keep all stream function as constants
     buf[1:4, :] = dropgrad(data[1:4, :])
-    
-    buf[5:8, lower_wall] = dropgrad(data[5:8, lower_wall])
-    buf[5:8, upper_wall] = dropgrad(data[5:8, upper_wall])
-    buf[5:8, left_wall]  = dropgrad(data[5:8, left_wall])
-    buf[5:8, right_wall] = dropgrad(data[5:8, right_wall])
+    # Yeah, this is a wired b.c., but this is correct...
+    buf[5:8, wall] = dropgrad(data[5:8, wall])
     
     data = copy(buf)
     
@@ -122,25 +128,25 @@ element_loss2(nodes, data, init, nu, dt) = begin
     ψinitdata = @views (init[1:4, :] .* ratio)[:]
     ωinitdata = @views (init[5:8, :] .* ratio)[:]
 
-    ω = oneHi * ωdata
+    ω = Hi * ωdata
 
-    ωinit = oneHi * ωinitdata
+    ωinit = Hi * ωinitdata
 
-    # coefficients below are from element governing equation
-    ωxx     = oneHxxi * ωdata * 4 * Δx^-2
-    ωyy     = oneHyyi * ωdata * 4 * Δy^-2
+    ## coefficients below are from element governing equation
+    #ωxx     = Hxxi * ωdata * 4 * Δx^-2
+    #ωyy     = Hyyi * ωdata * 4 * Δy^-2
+    #Δω = ωxx + ωyy
+    laplacian = Hxxi * 4Δx^-2 + Hyyi * 4Δy^-2
+    Δω = laplacian * ωdata
     
-    ωx      = oneHxi  * ωdata * 2 * Δx^-1
-    ωy      = oneHyi  * ωdata * 2 * Δy^-1
+    ψinitx  = Hxi  * ψinitdata * 2 * Δx^-1
+    ψinity  = Hyi  * ψinitdata * 2 * Δy^-1
     
-    ψinitx  = oneHxi  * ψinitdata * 2 * Δx^-1
-    ψinity  = oneHyi  * ψinitdata * 2 * Δy^-1
-    
-    ωinitx  = oneHxi  * ωinitdata * 2 * Δx^-1
-    ωinity  = oneHyi  * ωinitdata * 2 * Δy^-1
+    ωinitx  = Hxi  * ωinitdata * 2 * Δx^-1
+    ωinity  = Hyi  * ωinitdata * 2 * Δy^-1
 
-    residual2 = @. ((ω - ωinit) / dt + ψinity * ωinitx - ψinitx * ωinity - nu * (ωxx + ωyy))^2
-    oneweights ⋅ residual2 * Δx * Δy * 0.25
+    residual2 = @. ((ω - ωinit) / dt + ψinity * ωinitx - ψinitx * ωinity - nu * Δω)^2
+    weights ⋅ residual2 * Δx * Δy * 0.25
 end
 loss3(data, fem_dict) = begin
     nu, dt, mesh, data_init = fem_dict
@@ -149,15 +155,12 @@ loss3(data, fem_dict) = begin
     nodes = mesh["nodes"]
     elnodes = mesh["elnodes"]
     inner = mesh["inner"]
-    upper_wall, lower_wall, left_wall, right_wall = mesh["all_walls"]
+    wall = mesh["wall"]
 
     buf = Buffer(data)
     buf[:, :] = data[:, :]
     
-    buf[1:4, lower_wall] = dropgrad(data[1:4, lower_wall])
-    buf[1:4, upper_wall] = dropgrad(data[1:4, upper_wall])
-    buf[1:4, left_wall]  = dropgrad(data[1:4, left_wall])
-    buf[1:4, right_wall] = dropgrad(data[1:4, right_wall])
+    buf[1:4, wall] = dropgrad(data[1:4, wall])
     
     buf[5:8, inner] = dropgrad(data[5:8, inner])
     
@@ -178,25 +181,26 @@ element_loss3(nodes, data, init, nu, dt) = begin
     Δy = nodes[2, 4] - nodes[2, 1]
     ratio = Float64[1, 0.5Δx, 0.5Δy, 0.25Δx*Δy]
 
-    ψdata     = @views data[1:4, :] .* ratio
-    ωdata     = @views data[5:8, :] .* ratio
+    ψdata     = @views data[1:4, :] .* ratio |> vec
+    ωdata     = @views data[5:8, :] .* ratio |> vec
     
-    ω = Hi * vec(ωdata)
-    ψ = Hi * vec(ψdata)
+    ω = oneHi * ωdata
+    ψ = oneHi * ψdata
 
-    # coefficients below are from element governing equation
-    ψxx     = Hxxi * vec(ψdata)     * 4 * Δx^-2
-    ψx      = Hxi  * vec(ψdata)     * 2 * Δx^-1
+    ## coefficients below are from element governing equation
+    #ψxx     = oneHxxi * ψdata * 4 * Δx^-2
+    #ψyy     = oneHyyi * ψdata * 4 * Δy^-2
+    #Δψ = ψxx + ψyy
+    
+    laplacian = oneHxxi * 4Δx^-2 + oneHyyi * 4Δy^-2
+    Δψ = laplacian * ψdata
 
-    ψyy     = Hyyi * vec(ψdata)     * 4 * Δy^-2
-    ψy      = Hyi  * vec(ψdata)     * 2 * Δy^-1
-
-    #residual1 = @. (ωinit + (ψxx + ψyy))^2
-    #residial1 = @. (ψx^2 + ψy^2 - ψ * ωinit)
-    residual1 = @. (ω + (ψxx + ψyy))^2
-    weights ⋅ (residual1)
+    residual1 = @. (ω + Δψ)^2
+    oneweights ⋅ (residual1)
 end
 
+
+###### Below are some utility code #####
 
 
 walls(NG) = begin
