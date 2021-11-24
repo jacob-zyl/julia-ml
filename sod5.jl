@@ -1,13 +1,3 @@
-#=
-
-This version tries to solve the sod problem with a operator splitting method,
-where true navier-stokes equation is solved, the first operator is eulerian,
-and the second is laplacian.
-
-However this does not work.
-
-=#
-
 using LinearAlgebra, Statistics
 using GalacticOptim, Optim
 using Printf, CairoMakie
@@ -26,6 +16,44 @@ const pl = 1.0
 const ρr = 0.125
 const pr = 0.1
 
+show_result_1stOrder(filename) = begin
+    exact_data = CSV.File(
+        "exact_sod_output", delim="   ", header=0, skipto=3,
+        select=["Column1", "Column2", "Column3", "Column4", "Column5"]) |> DataFrame
+    x        = map(t -> parse(Float64, t), exact_data.Column1)
+    density  = map(t -> parse(Float64, t), exact_data.Column2)
+    pressure = map(t -> parse(Float64, t), exact_data.Column3)
+    velocity = map(t -> parse(Float64, t), exact_data.Column4)
+    energy   = map(t -> parse(Float64, t), exact_data.Column5)
+
+    time = load(filename, "time")
+    mesh = load(filename, "mesh")
+    data = load(filename, "data")
+    w1 = data[1, :]
+    w2 = data[2, :]
+    w3 = data[3, :]
+    ρ, u, p = get_primary_data(w1, w2, w3)
+    ϵ = @. p / ( ρ * (γ - 1.0) )
+    fig = Figure()
+    ax1 = Axis(fig[1, 1])
+    ax2 = Axis(fig[1, 2])
+    ax3 = Axis(fig[2, 1])
+    ax4 = Axis(fig[2, 2])
+    scatter!(ax1, mesh, u, markersize=5, label="Numerical") # velocity
+    scatter!(ax2, mesh, ρ, markersize=5, label="Numerical") # density
+    scatter!(ax3, mesh, p, markersize=5, label="Numerical") # pressure
+    scatter!(ax4, mesh, ϵ, markersize=5, label="Numerical") # total energy
+    lines!(ax1, x, velocity, color=:red, label="Analytical")
+    lines!(ax2, x, density, color=:red, label="Analytical")
+    lines!(ax3, x, pressure, color=:red, label="Analytical")
+    lines!(ax4, x, energy, color=:red, label="Analytical")
+    ax1.ylabel="Velocity"
+    ax2.ylabel="Density"
+    ax3.ylabel="Pressure"
+    ax4.ylabel="Energy"
+    Legend(fig[:, 3], ax1)
+    fig
+end
 show_result(filename) = begin
     exact_data = CSV.File(
         "exact_sod_output", delim="   ", header=0, skipto=3,
@@ -65,134 +93,25 @@ show_result(filename) = begin
     fig
 end
 
-
-## A Short Explain on Data Structure
-#
-#  Physical information is organized by two parts: the mesh and the data. The
-#  mesh is just an vector since there is no complex structure in 1D, but usually
-#  there should be two extra matrice: the first matrix records nodes of each
-#  element and the second records boundary conditions. The data records
-#  computational parameters on each node. Here in this program, the data is a
-#  6×#Nodes matrix with each column record computational parameters on the
-#  corresponding node. The first two elements of each column of matrix data are
-#  conservative variable 𝑤₁ and its spacial derivative ∂𝑤₁/∂x, the third and
-#  fourth elements correspond to 𝑤₂, and the fifth and sixth to 𝑤₃
-
 train(N, dt, T) = begin
     mesh = get_mesh(N)
     data = get_data(N)
     loss_f = OptimizationFunction(loss, GalacticOptim.AutoZygote())
-    loss_f2 = OptimizationFunction(loss2, GalacticOptim.AutoZygote())
 
     time = 0.0
     iters = 0
     while time < T
         prob = OptimizationProblem(loss_f, data, (dt, mesh, data))
-        sol = solve(prob, BFGS())
+        sol = solve(prob, ConjugateGradient())
         data = sol.minimizer
-        
-        prob = OptimizationProblem(loss_f2, data, (dt, mesh, data))
-        sol = solve(prob, BFGS())
-        data = sol.minimizer
-        
         @printf "%e\n" sol.minimum
         time += dt
         iters += 1
-        @save "sod/viscous_"*(@sprintf "%02i_" N)*(@sprintf "%04i" iters)*".jld" data mesh time
+        @save "sod/true_2ndOrder"*(@sprintf "%04i" iters)*".jld" data mesh time
     end
 end
 
 loss(data, fem_params) = begin
-    dt, mesh, data_init = fem_params
-    ng = length(mesh)
-    ne = ng - 1
-
-    buf = Buffer(data)
-    buf[:, :] = data[:, :]
-    buf[1, 1] = dropgrad(data[1, 1])
-    buf[1, end] = dropgrad(data[1, end])
-    buf[3, 1] = dropgrad(data[3, 1])
-    buf[3, end] = dropgrad(data[3, end])
-    buf[5, 1] = dropgrad(data[5, 1])
-    buf[5, end] = dropgrad(data[5, end])
-    data = copy(buf)
-
-    loss = 0
-    for iters in 1:ne
-        indice = [iters, iters+1]
-        elnode = @views mesh[indice]
-        eldata = @views data[:, indice]
-        elinit = @views data_init[:, indice]
-        loss += element_loss(elnode, eldata, elinit, dt)
-    end
-    loss
-end
-
-element_loss(nodes, data, init, dt) = begin
-    ν = 0.0
-
-    # data = [𝑤₁; 𝑤₂; 𝑤₃]
-    rdt = 1.0 / dt
-
-    # # Long live the isoparametric elements!
-    # fcoord = [nodes'; ones(1, 2)]
-    # coord = Hi * vec(fcoord)
-
-    # transform the data into local coordinate
-    Δ = nodes[2] - nodes[1]
-    det = 0.5Δ
-    ratio = [1.0, 0.5Δ, 1.0, 0.5Δ, 1.0, 0.5Δ]
-    f = data .* ratio
-    finit = init .* ratio
-
-    w1data = @view f[1:2, :]
-    w2data = @view f[3:4, :]
-    w3data = @view f[5:6, :]
-
-    w1initdata = @view finit[1:2, :]
-    w2initdata = @view finit[3:4, :]
-    w3initdata = @view finit[5:6, :]
-
-    _, udata, pdata = @views get_primary_data(w1data[1, :], w2data[1, :], w3data[1, :])
-    _, uinitdata, pinitdata = @views get_primary_data(w1initdata[1, :], w2initdata[1, :], w3initdata[1, :])
-
-    w1     = quad_on_element(w1data, det)
-    w1init = quad_on_element(w1initdata, det)
-    w2     = quad_on_element(w2data, det)
-    w2init = quad_on_element(w2initdata, det)
-    w3     = quad_on_element(w3data, det)
-    w3init = quad_on_element(w3initdata, det)
-
-    flux1_left  = w2data[1, 1]
-    flux1_right = w2data[1, 2]
-
-    flux2_left  = w2data[1, 1]^2 / w1data[1, 1] + pdata[1]# + ν * (w2data[2, 1] - udata[1] * w1data[2, 1])
-    flux2_right = w2data[1, 2]^2 / w1data[1, 2] + pdata[2]# + ν * (w2data[2, 2] - udata[2] * w1data[2, 2])
-
-    flux3_left  = udata[1] * (w3data[1, 1] + pdata[1])# + ν * udata[1] * (w2data[2, 1] - udata[1] * w1data[2, 1])
-    flux3_right = udata[2] * (w3data[1, 2] + pdata[2])# + ν * udata[2] * (w2data[2, 2] - udata[2] * w1data[2, 2])
-
-    flux1init_left  = w2initdata[1, 1]
-    flux1init_right = w2initdata[1, 2]
-    
-    res1 = (w1 - w1init) * rdt + flux1_right - flux1_left
-    res2 = (w2 - w2init) * rdt + flux2_right - flux2_left
-    res3 = (w3 - w3init) * rdt + flux3_right - flux3_left  
-    
-    # flux2init_left  = w2initdata[1, 1]^2 / w1initdata[1, 1] + pinitdata[1]# + ν * (w2initdata[2, 1] - uinitdata[1] * w1initdata[2, 1])
-    # flux2init_right = w2initdata[1, 2]^2 / w1initdata[1, 2] + pinitdata[2]# + ν * (w2initdata[2, 2] - uinitdata[2] * w1initdata[2, 2])
-
-    # flux3init_left  = uinitdata[1] * (w3initdata[1, 1] + pinitdata[1])# + ν * uinitdata[1] * (w2initdata[2, 1] - uinitdata[1] * w1initdata[2, 1])
-    # flux3init_right = uinitdata[2] * (w3initdata[1, 2] + pinitdata[2])# + ν * uinitdata[2] * (w2initdata[2, 2] - uinitdata[2] * w1initdata[2, 2])
-
-    # res1 = (w1 - w1init) * rdt + 0.5(flux1_right + flux1init_right)  - 0.5(flux1_left + flux1init_left)
-    # res2 = (w2 - w2init) * rdt + 0.5(flux2_right + flux2init_right)  - 0.5(flux2_left + flux2init_left)
-    # res3 = (w3 - w3init) * rdt + 0.5(flux3_right + flux3init_right)  - 0.5(flux3_left + flux3init_left)
-    
-    (res1.^2 + res2.^2 + res3.^2)
-end
-
-loss2(data, fem_params) = begin
     dt, mesh, data_init = fem_params
     ng = length(mesh)
     ne = ng - 1
@@ -218,8 +137,45 @@ loss2(data, fem_params) = begin
     loss
 end
 
+center_interpolate(nodes, data) = begin
+    # maybe a definition of function with form:
+    # _center_interpolate(data) 
+    # is good.
+    data1 = _center_interpolate(nodes, data[1:2, :])
+    data2 = _center_interpolate(nodes, data[3:4, :])
+    data3 = _center_interpolate(nodes, data[5:6, :])
+    [data1; data2; data3]
+end
+
+_center_interpolate(nodes, data) = begin
+    Δ = nodes[2] - nodes[1]
+    det = 0.5Δ
+    ratio = [1.0, det]
+    f = data .* ratio
+    [H0 ⋅ f, Hx0 ⋅ f / det]
+end
+
 element_loss2(nodes, data, init, dt) = begin
-    ν = 0.1
+    center_node = 0.5sum(nodes)
+
+    center_data = center_interpolate(nodes, data)
+    center_init = center_interpolate(nodes, init)
+
+    nodes1 = [nodes[1], center_node]
+    nodes2 = [center_node, nodes[2]]
+
+    data1 = [data[:, 1] center_data]
+    data2 = [center_data data[:, 2]]
+
+    init1 = [init[:, 1] center_init]
+    init2 = [center_init init[:, 2]]
+
+    +(
+        element_loss(nodes1, data1, init1, dt),
+        element_loss(nodes2, data2, init2, dt))
+end
+
+element_loss(nodes, data, init, dt) = begin
 
     # data = [𝑤₁; 𝑤₂; 𝑤₃]
     rdt = 1.0 / dt
@@ -231,23 +187,40 @@ element_loss2(nodes, data, init, dt) = begin
     # transform the data into local coordinate
     Δ = nodes[2] - nodes[1]
     det = 0.5Δ
-    ratio = [1.0, 0.5Δ, 1.0, 0.5Δ, 1.0, 0.5Δ]
+    ratio = [1.0, det, 1.0, det, 1.0, det]
     f = data .* ratio
     finit = init .* ratio
 
+    w1data = @view f[1:2, :]
     w2data = @view f[3:4, :]
+    w3data = @view f[5:6, :]
 
+    w1initdata = @view finit[1:2, :]
     w2initdata = @view finit[3:4, :]
+    w3initdata = @view finit[5:6, :]
 
-    u = Hi * vec(w2data)
-    uinit = Hi * vec(w2initdata)
+    pdata = @. (γ - 1.0) * (w3data[1, :] - 0.5 * w2data[1, :]^2 / w1data[1, :])
 
-    # coefficients below are from element governing equation
-    uxx = Hxxi * vec(w2data) * 4 * Δ^-2
+    w1     = quad_on_element(w1data, det)
+    w1init = quad_on_element(w1initdata, det)
+    w2     = quad_on_element(w2data, det)
+    w2init = quad_on_element(w2initdata, det)
+    w3     = quad_on_element(w3data, det)
+    w3init = quad_on_element(w3initdata, det)
 
-    r = @. (uxx + (uinit - u) / dt)^2
+    flux1_left  = @views w2data[1, 1]
+    flux1_right = @views w2data[1, 2]
 
-    W ⋅ r * 0.5Δ
+    flux2_left  = @views w2data[1, 1]^2 / w1data[1, 1] + pdata[1]
+    flux2_right = @views w2data[1, 2]^2 / w1data[1, 2] + pdata[2]
+
+    flux3_left  = @views (w2data[1, 1] / w1data[1, 1]) * (w3data[1, 1] + pdata[1])
+    flux3_right = @views (w2data[1, 2] / w1data[1, 2]) * (w3data[1, 2] + pdata[2])
+
+    res1 = (w1 - w1init) * rdt + flux1_right - flux1_left
+    res2 = (w2 - w2init) * rdt + flux2_right - flux2_left
+    res3 = (w3 - w3init) * rdt + flux3_right - flux3_left
+    (res1.^2 + res2.^2 + res3.^2) / Δ
 end
 
 using FastGaussQuadrature, Roots
@@ -274,6 +247,9 @@ Hx(x::Real) = [Hx1(x; ξ=-1) Hx2(x; ξ=-1) Hx1(x; ξ=1) Hx2(x; ξ=1)]
 Hx(x::Vector) = vcat(Hx.(x)...)
 Hxx(x::Real) = [Hxx1(x; ξ=-1) Hxx2(x; ξ=-1) Hxx1(x; ξ=1) Hxx2(x; ξ=1)]
 Hxx(x::Vector) = vcat(Hxx.(x)...)
+
+const H0 = H(0.0)
+const Hx0 = Hx(0.0)
 
 const Hi = H(P) # matrix NK × 4
 const Hxi = Hx(P)
