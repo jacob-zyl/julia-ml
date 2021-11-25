@@ -3,8 +3,8 @@ module DEUtils
 using FastGaussQuadrature
 using Zygote
 
-const NK = 2
-const NK_LESS = 2
+const NK = 3
+const NK_LESS = 3
 
 const POINTS_1D, WEIGHTS_1D = gausslegendre(NK)
 
