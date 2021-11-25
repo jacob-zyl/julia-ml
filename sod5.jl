@@ -266,9 +266,9 @@ derivative_on_gaussian_points(data) = begin
 end
 
 quad_on_element(data, det) = begin
-    value = value_on_gaussian_points(data)
-    det * (W ⋅ value)
-    # det * (WHi ⋅ vec(data))  # a faster implementation
+    # value = value_on_gaussian_points(data)
+    # det * (W ⋅ value)
+    det * (WHi ⋅ vec(data))  # a faster implementation
 end
 
 get_mesh(N) = begin
