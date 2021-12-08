@@ -8,7 +8,7 @@ using Zygote: dropgrad, ignore, Buffer, jacobian, hessian
 using ForwardDiff: derivative
 using JLD
 
-const DIR = "driven_cavity9/"
+const DIR = "driven_cavity6/"
 
 gen(;ng=20, dir = DIR) = begin
     nn = (ng + 1)^2
@@ -22,10 +22,8 @@ gen(;ng=20, dir = DIR) = begin
     data = zeros(8, nn)
 
     # data[3, upper_wall] .= 1.0
-    data[3, upper_wall] = nodes[1, upper_wall] .|> (x -> 1.0)
-    # correct b.c. on corner
-    data[3, left_wall] = nodes[1, left_wall] .|> (x -> 0.0)
-    data[3, right_wall] = nodes[1, right_wall] .|> (x -> 0.0)
+    data[3, upper_wall] = nodes[1, upper_wall] .|> (x -> 16x^2*(1-x)^2)
+    data[4, upper_wall] = nodes[1, upper_wall] .|> (x -> 32x*(1-x)*(1-2x))
 
     elnodes = hcat(map(p -> e2nvec(p, ng), 1:ne)...)
     
