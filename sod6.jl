@@ -4,9 +4,11 @@ using Printf, CairoMakie
 using CSV, DataFrames
 
 using Zygote: dropgrad, Buffer, jacobian
-using ForwardDiff: derivative
+using ForwardDiff 
 
 using JLD
+
+using Dierckx
 
 const γ = 1.4
 const NK = 4
@@ -16,45 +18,6 @@ const pl = 1.0
 const ρr = 0.125
 const pr = 0.1
 
-show_result_1stOrder(filename) = begin
-	array_coloumns = ["Column1", "Column2", "Column3", "Column4", "Column5"]
-    exact_data = CSV.File(
-        "exact_sod_output", delim="   ", header=0, skipto=3,
-        select=array_coloumns) |> DataFrame
-    x        = map(t -> parse(Float64, t), exact_data.Column1)
-    density  = map(t -> parse(Float64, t), exact_data.Column2)
-    pressure = map(t -> parse(Float64, t), exact_data.Column3)
-    velocity = map(t -> parse(Float64, t), exact_data.Column4)
-    energy   = map(t -> parse(Float64, t), exact_data.Column5)
-
-    time = load(filename, "time")
-    mesh = load(filename, "mesh")
-    data = load(filename, "data")
-    w1 = data[1, :]
-    w2 = data[2, :]
-    w3 = data[3, :]
-    ρ, u, p = get_primary_data(w1, w2, w3)
-    ϵ = @. p / ( ρ * (γ - 1.0) )
-    fig = Figure()
-    ax1 = Axis(fig[1, 1])
-    ax2 = Axis(fig[1, 2])
-    ax3 = Axis(fig[2, 1])
-    ax4 = Axis(fig[2, 2])
-    scatter!(ax1, mesh, u, markersize=5, label="Numerical") # velocity
-    scatter!(ax2, mesh, ρ, markersize=5, label="Numerical") # density
-    scatter!(ax3, mesh, p, markersize=5, label="Numerical") # pressure
-    scatter!(ax4, mesh, ϵ, markersize=5, label="Numerical") # total energy
-    lines!(ax1, x, velocity, color=:red, label="Analytical")
-    lines!(ax2, x, density, color=:red, label="Analytical")
-    lines!(ax3, x, pressure, color=:red, label="Analytical")
-    lines!(ax4, x, energy, color=:red, label="Analytical")
-    ax1.ylabel="Velocity"
-    ax2.ylabel="Density"
-    ax3.ylabel="Pressure"
-    ax4.ylabel="Energy"
-    Legend(fig[:, 3], ax1)
-    fig
-end
 show_result(filename) = begin
     exact_data = CSV.File(
         "exact_sod_output", delim="   ", header=0, skipto=3,
@@ -94,6 +57,19 @@ show_result(filename) = begin
     fig
 end
 
+
+## A Short Explain on Data Structure
+#
+#  Physical information is organized by two parts: the mesh and the data. The
+#  mesh is just an vector since there is no complex structure in 1D, but usually
+#  there should be two extra matrice: the first matrix records nodes of each
+#  element and the second records boundary conditions. The data records
+#  computational parameters on each node. Here in this program, the data is a
+#  6×#Nodes matrix with each column record computational parameters on the
+#  corresponding node. The first two elements of each column of matrix data are
+#  conservative variable 𝑤₁ and its spacial derivative ∂𝑤₁/∂x, the third and
+#  fourth elements correspond to 𝑤₂, and the fifth and sixth to 𝑤₃
+
 train(N, dt, T) = begin
     mesh = get_mesh(N)
     data = get_data(N)
@@ -105,10 +81,11 @@ train(N, dt, T) = begin
         prob = OptimizationProblem(loss_f, data, (dt, mesh, data))
         sol = solve(prob, ConjugateGradient())
         data = sol.minimizer
+		spline!(mesh, data)
         @printf "%e\n" sol.minimum
         time += dt
         iters += 1
-        @save "sod/true_2ndOrder"*(@sprintf "%04i" iters)*".jld" data mesh time
+        @save "sod6/"*(@sprintf "%04i" iters)*".jld" data mesh time
     end
 end
 
@@ -119,12 +96,18 @@ loss(data, fem_params) = begin
 
     buf = Buffer(data)
     buf[:, :] = data[:, :]
+
+	buf[2, :] = dropgrad(data[2, :])
+	buf[4, :] = dropgrad(data[4, :])
+	buf[6, :] = dropgrad(data[6, :])
+
     buf[1, 1] = dropgrad(data[1, 1])
     buf[1, end] = dropgrad(data[1, end])
     buf[3, 1] = dropgrad(data[3, 1])
     buf[3, end] = dropgrad(data[3, end])
     buf[5, 1] = dropgrad(data[5, 1])
     buf[5, end] = dropgrad(data[5, end])
+
     data = copy(buf)
 
     loss = 0
@@ -133,47 +116,9 @@ loss(data, fem_params) = begin
         elnode = @views mesh[indice]
         eldata = @views data[:, indice]
         elinit = @views data_init[:, indice]
-        loss += element_loss2(elnode, eldata, elinit, dt)
+        loss += element_loss(elnode, eldata, elinit, dt)
     end
     loss
-end
-
-center_interpolate(nodes, data) = begin
-    # maybe a definition of function with form:
-    # _center_interpolate(data) 
-    # is good.
-    data1 = _center_interpolate(nodes, data[1:2, :])
-    data2 = _center_interpolate(nodes, data[3:4, :])
-    data3 = _center_interpolate(nodes, data[5:6, :])
-    [data1; data2; data3]
-end
-
-_center_interpolate(nodes, data) = begin
-    Δ = nodes[2] - nodes[1]
-    det = 0.5Δ
-    ratio = [1.0, det]
-    f = data .* ratio
-    [H0 ⋅ f, Hx0 ⋅ f / det]
-end
-
-element_loss2(nodes, data, init, dt) = begin
-    center_node = 0.5sum(nodes)
-
-    center_data = center_interpolate(nodes, data)
-    center_init = center_interpolate(nodes, init)
-
-    nodes1 = [nodes[1], center_node]
-    nodes2 = [center_node, nodes[2]]
-
-    data1 = [data[:, 1] center_data]
-    data2 = [center_data data[:, 2]]
-
-    init1 = [init[:, 1] center_init]
-    init2 = [center_init init[:, 2]]
-
-    +(
-        element_loss(nodes1, data1, init1, dt),
-        element_loss(nodes2, data2, init2, dt))
 end
 
 element_loss(nodes, data, init, dt) = begin
@@ -188,7 +133,7 @@ element_loss(nodes, data, init, dt) = begin
     # transform the data into local coordinate
     Δ = nodes[2] - nodes[1]
     det = 0.5Δ
-    ratio = [1.0, det, 1.0, det, 1.0, det]
+    ratio = [1.0, 0.5Δ, 1.0, 0.5Δ, 1.0, 0.5Δ]
     f = data .* ratio
     finit = init .* ratio
 
@@ -221,7 +166,7 @@ element_loss(nodes, data, init, dt) = begin
     res1 = (w1 - w1init) * rdt + flux1_right - flux1_left
     res2 = (w2 - w2init) * rdt + flux2_right - flux2_left
     res3 = (w3 - w3init) * rdt + flux3_right - flux3_left
-    (res1.^2 + res2.^2 + res3.^2) / Δ
+    (res1.^2 + res2.^2 + res3.^2)
 end
 
 using FastGaussQuadrature, Roots
@@ -236,11 +181,11 @@ const P, W = gausslegendre(NK)
 H1(x; ξ) =  0.25*(1.0 + ξ*x)^2*(2.0 - ξ*x)
 H2(x; ξ) =  0.25*(1.0 + ξ*x)^2*(x - ξ)
 
-Hx1(x; ξ) = derivative(p -> H1(p; ξ=ξ), x)
-Hx2(x; ξ) = derivative(p -> H2(p; ξ=ξ), x)
+Hx1(x; ξ) = ForwardDiff.derivative(p -> H1(p; ξ=ξ), x)
+Hx2(x; ξ) = ForwardDiff.derivative(p -> H2(p; ξ=ξ), x)
 
-Hxx1(x; ξ) = derivative(p -> Hx1(p; ξ=ξ), x)
-Hxx2(x; ξ) = derivative(p -> Hx2(p; ξ=ξ), x)
+Hxx1(x; ξ) = ForwardDiff.derivative(p -> Hx1(p; ξ=ξ), x)
+Hxx2(x; ξ) = ForwardDiff.derivative(p -> Hx2(p; ξ=ξ), x)
 
 H(x::Real) = [H1(x; ξ=-1) H2(x; ξ=-1) H1(x; ξ=1) H2(x; ξ=1)]
 H(x::Vector) = vcat(H.(x)...)
@@ -248,9 +193,6 @@ Hx(x::Real) = [Hx1(x; ξ=-1) Hx2(x; ξ=-1) Hx1(x; ξ=1) Hx2(x; ξ=1)]
 Hx(x::Vector) = vcat(Hx.(x)...)
 Hxx(x::Real) = [Hxx1(x; ξ=-1) Hxx2(x; ξ=-1) Hxx1(x; ξ=1) Hxx2(x; ξ=1)]
 Hxx(x::Vector) = vcat(Hxx.(x)...)
-
-const H0 = H(0.0)
-const Hx0 = Hx(0.0)
 
 const Hi = H(P) # matrix NK × 4
 const Hxi = Hx(P)
@@ -267,9 +209,9 @@ derivative_on_gaussian_points(data) = begin
 end
 
 quad_on_element(data, det) = begin
-    # value = value_on_gaussian_points(data)
-    # det * (W ⋅ value)
-    det * (WHi ⋅ vec(data))  # a faster implementation
+    value = value_on_gaussian_points(data)
+    det * (W ⋅ value)
+    # det * (WHi ⋅ vec(data))  # a faster implementation
 end
 
 get_mesh(N) = begin
@@ -321,5 +263,14 @@ get_data(N) = begin
     mesh = get_mesh(N)
     data_tuple = get_conservative_data(mesh)
     data = [data_tuple[1] zero(mesh) data_tuple[2] zero(mesh) data_tuple[3] zero(mesh)]' |> collect
+end
+
+spline!(mesh, data) = begin
+	itp1 = Spline1D(mesh, data[1, :])
+	itp2 = Spline1D(mesh, data[3, :])
+	itp3 = Spline1D(mesh, data[5, :])
+	data[2, :] = Dierckx.derivative(itp1, mesh)
+	data[4, :] = Dierckx.derivative(itp2, mesh)
+	data[6, :] = Dierckx.derivative(itp3, mesh)
 end
 
