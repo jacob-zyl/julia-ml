@@ -70,16 +70,6 @@ The Spectral Element Method
   sem7.jl   half-mode constrain implemented, not working
   --------- -----------------------------------------------------------
 
-Heat Equation
--------------
-
-  ------------- -----------------------------------------------------
-  heat2d.jl     The working code
-  heat2dv2.jl   Failed code trying the convection form
-  heat2dv3.jl   The same code as heat2d.jl
-  heat2dv4.jl   Variational methods tried in unsteady heat equation
-  ------------- -----------------------------------------------------
-
 ### Benchmark test
 
   -------------- --------- -------- -------- ---------
@@ -96,16 +86,38 @@ Heat Equation
   Wall Time      0.503     4.179    1.615
   -------------- --------- -------- --------
 
+Heat Equation
+-------------
+
+  ------------- -----------------------------------------------------
+  heat2d.jl     The working code
+  heat2dv2.jl   Failed code trying the convection form
+  heat2dv3.jl   The same code as heat2d.jl
+  heat2dv4.jl   Variational methods tried in unsteady heat equation
+  ------------- -----------------------------------------------------
+
 Sod Problem
 -----------
 
-------- ---------
-sod.jl	just a trial and error
-sod2.jl	works
-sod3.jl	another trial and error on operator splitting
-sod4.jl	1st order solver
-sod5.jl	the correct 2nd order solver by subcell method
-------- ----------
+  ------- ---------
+  sod.jl  just a trial and error
+  sod2.jl works
+  sod3.jl another trial and error on operator splitting
+  sod4.jl true 1st order solver
+  sod5.jl the correct 2nd order solver by subcell method
+  sod6.jl the incorrect 2nd order solver by enforcing spline interpolation
+  ------- ----------
+
+Convection-Diffusion Equation
+-----------------------------
+
+  ------ -----
+  cd.jl  the working one
+  cd2.jl operator splitting
+  cd3.jl DEUtils.jl added
+  cd4.jl global evalutation corrected
+  cd5.jl variational form of time scheme tried (but failed)
+  ------ ----------
 
 Struggles (DONE)
 ---------
