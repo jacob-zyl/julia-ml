@@ -273,4 +273,3 @@ spline!(mesh, data) = begin
 	data[4, :] = Dierckx.derivative(itp2, mesh)
 	data[6, :] = Dierckx.derivative(itp3, mesh)
 end
-
